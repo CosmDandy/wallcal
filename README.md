@@ -1,5 +1,7 @@
 # wallcal
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/CosmDandy/wallcal)
+
 Calendar wallpapers rendered on demand from a URL. Point your phone's daily
 automation at one link and the lock screen redraws itself every morning — no
 app, no account, no database. The URL *is* the configuration.
