@@ -124,7 +124,8 @@ venv.bak/
 
 # uv
 .uv/
-uv.lock
+# uv.lock is committed: this repo is an application, not a library, and the
+# lock is what makes a deploy reproducible.
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -240,7 +241,8 @@ coverage.html
 # ============================================================================
 
 # Docker
-.dockerignore
+# .dockerignore is committed: the image build in CI needs it, and without it the
+# build context would carry .venv and the caches into the daemon.
 docker-compose.override.yml
 .docker/
 
@@ -338,3 +340,7 @@ logs/
 .Trashes
 Thumbs.db
 ehthumbs.db
+
+# Per-session working notes from Claude Code, not part of the project.
+PROGRESS.*.md
+TODO.*.md

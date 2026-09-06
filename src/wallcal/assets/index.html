@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wallcal — build your wallpaper</title>
+<style>
+  :root {
+    --base03:#002b36; --base02:#073642; --base01:#586e75; --base00:#657b83;
+    --base0:#839496; --base1:#93a1a1; --base2:#eee8d5; --base3:#fdf6e3;
+    --orange:#cb4b16; --green:#859900; --blue:#268bd2;
+    --radius:8px;
+
+    /* Semantic tones. Solarized is one ramp read from either end, so a theme is
+       a swap of these six, never a change anywhere else in this stylesheet. */
+    --page:var(--base3); --ink:var(--base01); --ink-dim:var(--base00);
+    --ink-faint:var(--base1); --panel:var(--base2); --line:var(--base2);
+
+    /* The phone is an object, not part of the page: black, the same in either
+       theme, and the same black as the island — a real one is one piece of
+       glass and shell. The rail is the only lighter tone, and it is what keeps
+       the silhouette off the dark page ground, where a flat black disappears. */
+    --phone-rail:#2e2e30; --phone-body:#000; --phone-key:#3d3d3f;
+    --phone-key-quiet:#1c1c1e;
+  }
+  :root[data-ui="dark"] {
+    --page:var(--base03); --ink:var(--base1); --ink-dim:var(--base0);
+    --ink-faint:var(--base00); --panel:var(--base02); --line:var(--base02);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-ui="light"]) {
+      --page:var(--base03); --ink:var(--base1); --ink-dim:var(--base0);
+      --ink-faint:var(--base00); --panel:var(--base02); --line:var(--base02);
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--page); color:var(--ink);
+    font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  header {
+    position:sticky; top:0; z-index:10; background:var(--page);
+    border-bottom:1px solid var(--line); padding:14px 24px;
+  }
+  .bar { display:flex; gap:10px; align-items:center; max-width:1180px; margin:0 auto; }
+  .brand { font-weight:600; color:var(--ink); letter-spacing:-.01em; }
+  #url {
+    flex:1; cursor:text; font:13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background:var(--panel); color:var(--ink); border:1px solid transparent;
+    border-radius:var(--radius); padding:9px 12px; overflow-x:auto; white-space:nowrap;
+  }
+  button { font:inherit; cursor:pointer; }
+  .action {
+    border:1px solid var(--line); background:var(--page); color:var(--ink);
+    border-radius:var(--radius); padding:9px 14px; white-space:nowrap;
+  }
+  .action:hover { border-color:var(--ink-faint); color:var(--ink); }
+  .action.copied { background:var(--green); border-color:var(--green); color:var(--base3); }
+  .action.failed { background:var(--orange); border-color:var(--orange); color:var(--base3); }
+
+  main { max-width:1240px; margin:0 auto; padding:24px; display:grid;
+         grid-template-columns: 330px minmax(0,1fr); gap:36px; align-items:start; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+
+  /* Two fieldsets share a row where their controls are short, one takes the
+     full width where the rows are long. */
+  #controls { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0 32px; }
+  @media (max-width: 620px) { #controls { grid-template-columns:1fr; } }
+  fieldset { border:none; margin:0 0 26px; padding:0; min-width:0; }
+  fieldset.wide { grid-column:1 / -1; }
+  legend {
+    font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-faint); padding:0 0 10px;
+  }
+  .row { display:grid; grid-template-columns:118px minmax(0,1fr); gap:12px;
+         align-items:center; margin-bottom:9px; }
+  .row > label { font-size:13px; color:var(--ink-dim); }
+
+  .seg { display:inline-flex; flex-wrap:wrap; gap:4px; }
+  .seg button {
+    border:1px solid var(--line); background:var(--page); color:var(--ink-dim);
+    border-radius:var(--radius); padding:6px 11px; font-size:13px; line-height:1.2;
+  }
+  .seg button:hover { border-color:var(--ink-faint); }
+  .seg button[aria-pressed="true"] {
+    background:var(--ink); border-color:var(--ink); color:var(--page);
+  }
+
+  .swatches { display:inline-flex; flex-wrap:wrap; gap:6px; }
+  .swatches button {
+    width:26px; height:26px; border-radius:50%; border:2px solid transparent;
+    padding:0; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+  }
+  .swatches button[aria-pressed="true"] { border-color:var(--ink); }
+
+  input[type=date], input[type=text] {
+    font:inherit; color:var(--ink); background:var(--page);
+    border:1px solid var(--line); border-radius:var(--radius); padding:6px 10px;
+  }
+  input[type=text] { width:100%; max-width:420px; }
+  input[type=range] { flex:1; min-width:120px; accent-color:var(--ink); }
+  output { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--ink-dim);
+           min-width:3.2em; text-align:right; }
+  .inline { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .inline input[type=text] { flex:1; min-width:140px; }
+  .action.small { padding:6px 11px; font-size:13px; }
+
+  aside { position:sticky; top:88px; }
+
+  /* Phone shell: all CSS, no artwork. Proportions and radii follow a real
+     393x852 device — bezel 12, shell corner 55, screen corner 47 — scaled by
+     --s, which is what keeps the rounding of the screen honest at any size. */
+  .stage { position:relative; display:flex; justify-content:center; margin:0; padding:22px 0 34px; }
+  .stage::before {
+    content:""; position:absolute; inset:6% 2% 10%; border-radius:40px;
+    background:radial-gradient(ellipse at 50% 45%, var(--panel) 0%, transparent 70%);
+    filter:blur(46px);
+  }
+  .phone { --s:.74; position:relative; width:calc(393px * var(--s)); height:calc(852px * var(--s)); }
+  /* Three nested shells, the way thelifecalendar builds it: a rail lit at both
+     ends, a dark band inside it, then the screen. The light-dark-light gradient
+     is what reads as a metal edge catching light top and bottom. */
+  .shell {
+    position:absolute; inset:0; border-radius:calc(55px * var(--s));
+    background:linear-gradient(180deg,
+      var(--phone-rail) 0%, var(--phone-body) 50%, var(--phone-rail) 100%);
+    box-shadow:0 25px 50px -12px rgba(0,43,54,.45);
+  }
+  .shell::after {
+    content:""; position:absolute; inset:calc(3px * var(--s)); border-radius:calc(52px * var(--s));
+    background:var(--phone-body);
+  }
+  /* Keys lighter than the rail, so they read as raised metal rather than as
+     slots. Positions are theirs, rescaled from a 180x380 mock-up to 393x852. */
+  .btn { position:absolute; width:calc(3px * var(--s)); background:var(--phone-key); z-index:1; }
+  .btn.left { left:calc(-2px * var(--s)); border-radius:calc(2px * var(--s)) 0 0 calc(2px * var(--s)); }
+  .btn.right { right:calc(-2px * var(--s)); border-radius:0 calc(2px * var(--s)) calc(2px * var(--s)) 0; }
+  /* The action key is the shortest one and sits nearest the corner, where a
+     bright stub catches the eye out of proportion to its size. */
+  .action {
+    top:calc(163px * var(--s)); height:calc(34px * var(--s));
+    background:var(--phone-key-quiet);
+  }
+  .vol-up { top:calc(224px * var(--s)); height:calc(72px * var(--s)); }
+  .vol-down { top:calc(314px * var(--s)); height:calc(72px * var(--s)); }
+  .side { top:calc(247px * var(--s)); height:calc(108px * var(--s)); }
+  .screen {
+    position:absolute; inset:calc(12px * var(--s)); overflow:hidden; background:#000;
+    border-radius:calc(47px * var(--s)); z-index:1;
+  }
+  .shot { display:block; width:100%; height:100%; object-fit:cover; }
+  .screen::after {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(180deg, rgba(0,0,0,.15) 0%, transparent 25%,
+                                       transparent 75%, rgba(0,0,0,.2) 100%);
+  }
+  /* The island is hardware, so it belongs to the shell. The clock and the home
+     indicator are not: pv=1 already draws those into the wallpaper itself. */
+  .island {
+    position:absolute; z-index:2; left:50%; transform:translateX(-50%); background:#000;
+    top:calc(11px * var(--s)); width:calc(126px * var(--s)); height:calc(37px * var(--s));
+    border-radius:calc(18.5px * var(--s));
+  }
+  .island::after {
+    content:""; position:absolute; top:50%; right:calc(22px * var(--s)); transform:translateY(-50%);
+    width:calc(12px * var(--s)); height:calc(12px * var(--s)); border-radius:50%;
+    background:#141417; box-shadow:inset 0 0 3px rgba(0,0,0,.8);
+  }
+  @media (max-width:420px) { .phone { --s:.6; } }
+  .hint { font-size:12px; color:var(--ink-faint); margin:10px 2px 0; }
+  code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--panel);
+         padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <span class="brand">wallcal</span>
+    <div id="url"></div>
+    <button class="action" id="copy">Copy</button>
+    <button class="action" id="open">Open</button>
+    <span class="seg" id="ui-theme">
+      <button type="button" data-ui="auto" title="Follow the system">Auto</button>
+      <button type="button" data-ui="light" title="Light">☀</button>
+      <button type="button" data-ui="dark" title="Dark">☾</button>
+    </span>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <figure class="stage">
+      <div class="phone">
+        <div class="shell">
+          <i class="btn left action"></i>
+          <i class="btn left vol-up"></i>
+          <i class="btn left vol-down"></i>
+          <i class="btn right side"></i>
+        </div>
+        <div class="screen">
+          <img class="shot" id="shot" alt="wallpaper preview">
+          <div class="island"></div>
+        </div>
+      </div>
+    </figure>
+    <p class="hint">
+      Point a daily iOS Shortcut or MacroDroid macro at the link above.
+      Turn the mock-up off before you do — <code>pv=1</code> draws the clock and buttons.
+    </p>
+  </aside>
+  <form id="controls">
+    <fieldset>
+      <legend>Span</legend>
+      <div class="row">
+        <label>Mode</label>
+        <span class="seg" id="modes">
+          <button type="button" data-mode="span">Custom</button>
+          <button type="button" data-mode="year">This year</button>
+          <button type="button" data-mode="quarter">This quarter</button>
+          <button type="button" data-mode="month">This month</button>
+        </span>
+      </div>
+      <div class="row" data-span-only>
+        <label for="from">From</label>
+        <span><input type="date" id="from"></span>
+      </div>
+      <div class="row" data-span-only>
+        <label for="to">To</label>
+        <span><input type="date" id="to"></span>
+      </div>
+      <div class="row" data-span-only>
+        <label>Presets</label>
+        <span class="seg" id="presets">
+          <button type="button" data-preset="year">This year</button>
+          <button type="button" data-preset="quarter">This quarter</button>
+          <button type="button" data-preset="90">Next 90 days</button>
+          <button type="button" data-preset="month">This month</button>
+        </span>
+      </div>
+      <p class="hint" id="mode-hint"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Screen</legend>
+      <div class="row"><label>Device</label><span class="seg" data-key="d"></span></div>
+      <div class="row"><label>Clock</label><span class="seg" data-key="ck"></span></div>
+      <div class="row">
+        <label for="sh">Nudge</label>
+        <span class="inline">
+          <input type="range" id="sh" min="-15" max="15" step="1" value="0">
+          <output id="sh-value">0%</output>
+          <button type="button" class="action small" id="sh-reset">Reset</button>
+        </span>
+      </div>
+      <div class="row"><label>Mock-up</label><span class="seg" data-key="pv"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Grid</legend>
+      <div class="row"><label>Shape</label><span class="seg" data-key="s"></span></div>
+      <div class="row"><label>Weeks per row</label><span class="seg" data-key="g"></span></div>
+      <div class="row"><label>Week gap</label><span class="seg" data-key="sp"></span></div>
+      <div class="row"><label>Month breaks</label><span class="seg" data-key="mb"></span></div>
+      <div class="row"><label>Fade the past</label><span class="seg" data-key="fd"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Labels</legend>
+      <div class="row"><label>Axes</label><span class="seg" data-key="ax"></span></div>
+      <div class="row"><label>Placement</label><span class="seg" data-key="lb"></span></div>
+      <div class="row"><label>Top axis</label><span class="seg" data-key="hdr"></span></div>
+      <div class="row"><label>Week numbers</label><span class="seg" data-key="wk"></span></div>
+      <div class="row"><label>Language</label><span class="seg" data-key="lang"></span></div>
+      <div class="row"><label>Week starts</label><span class="seg" data-key="wd"></span></div>
+    </fieldset>
+
+    <fieldset class="wide">
+      <legend>Highlights</legend>
+      <div class="row"><label>Weekends</label><span class="seg" data-key="we"></span></div>
+      <div class="row"><label>Month ends</label><span class="seg" data-key="mk"></span></div>
+      <div class="row"><label>Today</label><span class="swatches" data-key="a"></span></div>
+      <div class="row"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
+    </fieldset>
+
+    <fieldset class="wide">
+      <legend>Theme</legend>
+      <div class="row"><label>Background</label><span class="seg" data-key="th"></span></div>
+      <div class="row"><label>Dots</label><span class="seg" data-key="ink"></span></div>
+    </fieldset>
+
+    <fieldset class="wide">
+      <legend>Footer</legend>
+      <div class="row"><label>Line</label><span class="seg" data-key="ft"></span></div>
+      <div class="row"><label>Progress rule</label><span class="seg" data-key="br"></span></div>
+      <div class="row"><label>Quote of the day</label><span class="seg" data-key="q"></span></div>
+      <div class="row">
+        <label for="qt">Your own line</label>
+        <span>
+          <input type="text" id="qt" maxlength="240" placeholder="leave empty to use the rotation">
+        </span>
+      </div>
+      <div class="row">
+        <label for="qa">Attributed to</label>
+        <span class="inline">
+          <input type="text" id="qa" maxlength="60" placeholder="optional">
+          <button type="button" class="action small" id="shuffle">Shuffle</button>
+          <button type="button" class="action small" id="rotate">Rotation</button>
+        </span>
+      </div>
+      <p class="hint" id="quote-preview"></p>
+    </fieldset>
+  </form>
+</main>
+
+<script>
+const OPTIONS = {
+  d:  { def:"i16",  items:[["i16","16"],["i16p","16 Pro"],["i16pm","16 Pro Max"]] },
+  pv: { def:"0", init:"1", items:[["1","On"],["0","Off"]] },
+  ck: { def:"std",  items:[["std","Standard"],["big","Large"]] },
+  sh: { def:"0",    items:[] },  // a slider, not buttons — see the range input
+  ink:{ def:"bright", items:[["bright","Bright"],["cream","Cream"]] },
+  s:  { def:"c",    items:[["c","Circle"],["r","Rounded"]] },
+  g:  { def:"2",    items:[["1","1"],["2","2"],["3","3"],["4","4"]] },
+  sp: { def:"1",    items:[["1","On"],["0","Off"]] },
+  mb: { def:"0",    items:[["1","On"],["0","Off"]] },
+  fd: { def:"1",    items:[["1","On"],["0","Off"]] },
+  ax: { def:"1",    items:[["1","On"],["0","Off"]] },
+  lb: { def:"left", items:[["left","Left"],["right","Right"],["split","Split"]] },
+  wk: { def:"iso",  items:[["iso","ISO week"],["n","From start"]] },
+  hdr:{ def:"days", items:[["days","MO TU"],["count","7 · 14"],["none","None"]] },
+  lang:{ def:"en",  items:[["en","English"],["ru","Русский"]] },
+  wd: { def:"0",    items:[["0","Monday"],["6","Sunday"]] },
+  we: { def:"1",    items:[["1","On"],["0","Off"]] },
+  mk: { def:"1",    items:[["1","On"],["0","Off"]] },
+  th: { def:"light", items:[
+        ["light","Paper"],["dark","Ink"],["gray","Graphite"],
+        ["teal","Teal"],["ultramarine","Ultramarine"],["pink","Pink"],["sand","Sand"],
+        ["white","White"],["black","Black"]] },
+  q:  { def:"0",    items:[["1","On"],["0","Off"]] },
+  ft: { def:"pct",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
+  br: { def:"1",    items:[["1","On"],["0","Off"]] },
+};
+
+const SWATCHES = {
+  a:  { def:"orange" },
+  mc: { def:"orange" },
+};
+const HUES = [
+  ["orange","#cb4b16"], ["red","#dc322f"], ["magenta","#d33682"], ["violet","#6c71c4"],
+  ["blue","#268bd2"], ["cyan","#2aa198"], ["green","#859900"], ["yellow","#b58900"],
+  ["base01","#586e75"], ["base1","#93a1a1"],
+];
+
+// `def` mirrors the server's default and is dropped from the link; `init` is
+// only what the page opens with. Letting the two drift is what made the mock-up
+// toggle look dead: it started on 1, matched its own default, and sent nothing.
+const state = {};
+for (const [key, spec] of Object.entries(OPTIONS)) state[key] = spec.init ?? spec.def;
+for (const [key, spec] of Object.entries(SWATCHES)) state[key] = spec.def;
+
+const STORE_KEY = "wallcal.builder";
+const UI_KEY = "wallcal.ui-theme";
+// year / quarter / month carry no dates at all, so the link never expires: the
+// picture rolls over by itself when the calendar does.
+let mode = "span";
+// Wallpapers are cached until midnight, which is right for a phone and wrong
+// here: after a redeploy the browser kept serving yesterday's drawing for a URL
+// whose parameters had not changed. One nonce per page load busts it for the
+// preview only — the link you copy stays clean and cacheable.
+const BOOT = Date.now();
+const fromInput = document.getElementById("from");
+const quoteText = document.getElementById("qt");
+const quoteAuthor = document.getElementById("qa");
+const quoteHint = document.getElementById("quote-preview");
+const nudge = document.getElementById("sh");
+const nudgeValue = document.getElementById("sh-value");
+let rotation = { today: null, quotes: [] };
+const toInput = document.getElementById("to");
+const urlBox = document.getElementById("url");
+const shot = document.getElementById("shot");
+
+function iso(date) { return date.toISOString().slice(0, 10); }
+
+function applyPreset(name) {
+  const now = new Date();
+  let start, end;
+  if (name === "year") {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = new Date(now.getFullYear(), 11, 31);
+  } else if (name === "quarter") {
+    const q = Math.floor(now.getMonth() / 3);
+    start = new Date(now.getFullYear(), q * 3, 1);
+    end = new Date(now.getFullYear(), q * 3 + 3, 0);
+  } else if (name === "month") {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  } else {
+    start = now;
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 90);
+  }
+  fromInput.value = iso(start);
+  toInput.value = iso(end);
+  render();
+}
+
+function buildSegments() {
+  for (const [key, spec] of Object.entries(OPTIONS)) {
+    const host = document.querySelector(`.seg[data-key="${key}"]`);
+    if (!host) continue;
+    for (const [value, label] of spec.items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.value = value;
+      button.addEventListener("click", () => {
+        state[key] = value;
+        if (key === "q" && value === "1") { quoteText.value = ""; quoteAuthor.value = ""; }
+        render();
+      });
+      host.append(button);
+    }
+  }
+  for (const key of Object.keys(SWATCHES)) {
+    const host = document.querySelector(`.swatches[data-key="${key}"]`);
+    for (const [name, hex] of HUES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.style.background = hex;
+      button.title = name;
+      button.dataset.value = name;
+      button.addEventListener("click", () => { state[key] = name; render(); });
+      host.append(button);
+    }
+  }
+}
+
+function paintModes() {
+  document.querySelectorAll("#modes button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+  });
+  document.querySelectorAll("[data-span-only]").forEach((row) => {
+    row.hidden = mode !== "span";
+  });
+  document.getElementById("mode-hint").textContent =
+    mode === "span" ? "" : "No dates in the link — it rolls over on its own.";
+}
+
+function paintSelection() {
+  paintModes();
+  nudge.value = state.sh;
+  nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
+  document.querySelectorAll("[data-key]").forEach((host) => {
+    const key = host.dataset.key;
+    host.querySelectorAll("button").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.value === state[key]));
+    });
+  });
+}
+
+// The mock-up is a viewing aid, not part of the wallpaper: it belongs in the
+// preview on this page and never in the link you hand to a phone.
+const PREVIEW_ONLY = new Set(["pv"]);
+
+function query({ forPreview = false } = {}) {
+  const parts = mode === "span" ? [`f=${fromInput.value}`, `t=${toInput.value}`] : [];
+  for (const [key, spec] of Object.entries({ ...OPTIONS, ...SWATCHES })) {
+    if (PREVIEW_ONLY.has(key)) continue;
+    if (state[key] !== spec.def) parts.push(`${key}=${state[key]}`);
+  }
+  if (quoteText.value.trim()) {
+    parts.push(`qt=${encodeURIComponent(quoteText.value.trim())}`);
+    if (quoteAuthor.value.trim()) parts.push(`qa=${encodeURIComponent(quoteAuthor.value.trim())}`);
+  }
+  if (forPreview) {
+    if (state.pv === "1") parts.push("pv=1");
+    parts.push(`_=${BOOT}`);
+  }
+  return parts.join("&");
+}
+
+// `mode` lives in the builder's own address so a shared builder link restores it.
+function save() {
+  const snapshot = { ...state, mode, f: fromInput.value, t: toInput.value,
+                     qt: quoteText.value, qa: quoteAuthor.value };
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); } catch {}
+  // Also mirrored into this page's own address, so a reload or a shared builder
+  // link restores the same settings even in a fresh browser.
+  const own = mode === "span" ? query() : `mode=${mode}&${query()}`;
+  history.replaceState(null, "", `?${own}`);
+}
+
+function restore() {
+  const fromUrl = new URLSearchParams(location.search);
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch {}
+  const pick = (key) => (fromUrl.has(key) ? fromUrl.get(key) : saved[key]);
+
+  for (const key of Object.keys({ ...OPTIONS, ...SWATCHES })) {
+    const value = pick(key);
+    if (value !== undefined && value !== null) state[key] = value;
+  }
+  if (pick("f")) fromInput.value = pick("f");
+  if (pick("t")) toInput.value = pick("t");
+  quoteText.value = pick("qt") || "";
+  quoteAuthor.value = pick("qa") || "";
+  if (pick("mode")) mode = pick("mode");
+  return Boolean(pick("f") && pick("t"));
+}
+
+let timer = null;
+function render() {
+  paintSelection();
+  urlBox.textContent = `${location.origin}/w/${mode}.png?${query()}`;
+  showQuote();
+  save();
+  const preview = `${location.origin}/w/${mode}.png?${query({ forPreview: true })}`;
+  clearTimeout(timer);
+  timer = setTimeout(() => { shot.src = preview; }, 120);
+}
+
+document.getElementById("modes").addEventListener("click", (event) => {
+  const chosen = event.target.dataset.mode;
+  if (chosen) { mode = chosen; render(); }
+});
+
+document.getElementById("presets").addEventListener("click", (event) => {
+  const preset = event.target.dataset.preset;
+  if (preset) applyPreset(preset);
+});
+fromInput.addEventListener("change", render);
+toInput.addEventListener("change", render);
+
+// navigator.clipboard only exists in a secure context — HTTPS or localhost. Served
+// over plain HTTP on a LAN address it is undefined, which is why the button used
+// to do nothing at all. Fall back to the old execCommand path, and if even that is
+// refused, say so instead of failing silently.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+  }
+  const scratch = document.createElement("textarea");
+  scratch.value = text;
+  scratch.setAttribute("readonly", "");
+  scratch.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+  document.body.append(scratch);
+  scratch.select();
+  scratch.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  scratch.remove();
+  return ok;
+}
+
+function flash(button, label, good) {
+  const original = button.textContent;
+  button.textContent = label;
+  button.classList.toggle("copied", good);
+  button.classList.toggle("failed", !good);
+  setTimeout(() => {
+    button.textContent = original;
+    button.classList.remove("copied", "failed");
+  }, good ? 1200 : 2400);
+}
+
+document.getElementById("copy").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (await copyText(urlBox.textContent)) {
+    flash(button, "Copied", true);
+  } else {
+    selectUrl();
+    flash(button, "Press ⌘/Ctrl+C", false);
+  }
+});
+
+// Clicking the link selects all of it, so copying by hand is one gesture.
+function selectUrl() {
+  const range = document.createRange();
+  range.selectNodeContents(urlBox);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+urlBox.addEventListener("click", selectUrl);
+document.getElementById("open").addEventListener("click", () => {
+  window.open(urlBox.textContent, "_blank");
+});
+
+function showQuote() {
+  if (quoteText.value.trim()) {
+    quoteHint.textContent = "Your own line, fixed in the link. Rotation is off.";
+  } else if (state.q === "1" && rotation.today) {
+    quoteHint.textContent =
+      `Today: “${rotation.today.line}” — ${rotation.today.author}. It changes every day.`;
+  } else {
+    quoteHint.textContent = "";
+  }
+}
+
+nudge.addEventListener("input", () => { state.sh = nudge.value; render(); });
+document.getElementById("sh-reset").addEventListener("click", () => {
+  state.sh = OPTIONS.sh.def;
+  render();
+});
+
+// The two are alternatives, not layers: a line of your own replaces the daily
+// rotation, and turning the rotation back on clears what you typed.
+function onOwnLine() {
+  if (quoteText.value.trim()) state.q = "0";
+  render();
+}
+quoteText.addEventListener("input", onOwnLine);
+quoteAuthor.addEventListener("input", onOwnLine);
+
+document.getElementById("shuffle").addEventListener("click", () => {
+  if (!rotation.quotes.length) return;
+  const pick = rotation.quotes[Math.floor(Math.random() * rotation.quotes.length)];
+  quoteText.value = pick.line;
+  quoteAuthor.value = pick.author;
+  state.q = "0";  // a fixed line, picked at random once — not the daily rotation
+  render();
+});
+
+document.getElementById("rotate").addEventListener("click", () => {
+  quoteText.value = "";
+  quoteAuthor.value = "";
+  render();
+});
+
+// The page's own theme, separate from the wallpaper's: `auto` leaves it to the
+// system, the other two override it. Stored on its own key so clearing builder
+// settings does not blind you with a white page.
+function applyUiTheme(choice) {
+  if (choice === "auto") document.documentElement.removeAttribute("data-ui");
+  else document.documentElement.setAttribute("data-ui", choice);
+  try { localStorage.setItem(UI_KEY, choice); } catch {}
+  document.querySelectorAll("#ui-theme button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.ui === choice));
+  });
+}
+
+document.getElementById("ui-theme").addEventListener("click", (event) => {
+  const choice = event.target.dataset.ui;
+  if (choice) applyUiTheme(choice);
+});
+
+let uiChoice = "auto";
+try { uiChoice = localStorage.getItem(UI_KEY) || "auto"; } catch {}
+applyUiTheme(uiChoice);
+
+buildSegments();
+if (!restore()) applyPreset("year");
+render();
+
+fetch("/api/quotes")
+  .then((response) => response.json())
+  .then((data) => { rotation = data; showQuote(); })
+  .catch(() => {});
+</script>
+</body>
+</html>
