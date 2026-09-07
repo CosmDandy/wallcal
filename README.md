@@ -1,5 +1,10 @@
 # wallcal
 
+[![build](https://github.com/CosmDandy/wallcal/actions/workflows/image.yml/badge.svg)](https://github.com/CosmDandy/wallcal/actions/workflows/image.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/CosmDandy/wallcal/badge)](https://scorecard.dev/viewer/?uri=github.com/CosmDandy/wallcal)
+[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
+[![ghcr](https://img.shields.io/badge/ghcr.io-wallcal-2496ed?logo=docker&logoColor=white)](https://github.com/CosmDandy/wallcal/pkgs/container/wallcal)
+[![license](https://img.shields.io/github/license/CosmDandy/wallcal)](LICENSE)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/CosmDandy/wallcal)
 
 Calendar wallpapers rendered on demand from a URL. Point your phone's daily
