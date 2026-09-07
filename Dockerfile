@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 # 3.12 explicitly, matching requires-python = ">=3.12" in pyproject.toml.
 # Same base in both stages so the venv's absolute paths and shebangs stay valid.
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS builder
 
 # uv is pinned: an unpinned build tool is a reproducibility hole in a stage
 # whose whole purpose is a reproducible install.
@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------------------------------------------------------------------------
 # Stage 2: runtime
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 
 LABEL org.opencontainers.image.title="wallcal" \
       org.opencontainers.image.description="Self-hosted calendar wallpapers rendered on demand from a URL" \
