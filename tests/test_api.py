@@ -53,7 +53,7 @@ def test_the_builder_brings_its_own_calendar(client: TestClient):
         assert f'id="{key}-btn"' in body
         assert f'<input type="date" id="{key}" hidden>' in body
     assert "cal-day" in body   # the grid the page draws itself
-    assert "cal-year" in body  # and the year picker behind the title
+    assert "cal-pick" in body  # and the months and years behind the title
 
 
 def test_builder_defaults_match_the_api_defaults():

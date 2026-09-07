@@ -8,7 +8,7 @@ and no backup, and it can run with a read-only root filesystem.
 ## Build
 
 ```sh
-docker build -t wallcal:0.1.0 .
+docker build -t wallcal:0.2.0 .
 ```
 
 The build is two stages. The first resolves and installs the dependencies with
@@ -30,7 +30,7 @@ CI builds `linux/amd64` only. For another architecture, name it yourself —
 anything other than the host's is built under emulation and is slow:
 
 ```sh
-docker buildx build --platform linux/arm64 -t wallcal:0.1.0 .
+docker buildx build --platform linux/arm64 -t wallcal:0.2.0 .
 ```
 
 ## Run
@@ -51,7 +51,7 @@ docker run -d \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges \
-  wallcal:0.1.0
+  wallcal:0.2.0
 ```
 
 The two `--log-opt` flags are the ones to keep. The service writes a line per
@@ -258,7 +258,7 @@ should not be world-readable, put the authentication in the proxy.
 ## Upgrading
 
 ```sh
-docker build -t wallcal:0.1.0 . && docker rm -f wallcal && docker run -d ...
+docker build -t wallcal:0.2.0 . && docker rm -f wallcal && docker run -d ...
 ```
 
 There is no state, so there is no migration and no rollback procedure beyond

@@ -47,7 +47,7 @@
     --glass-from:rgba(238,232,213,.72); --glass-to:rgba(238,232,213,.46);
     --glass-hot-from:rgba(238,232,213,.92); --glass-hot-to:rgba(238,232,213,.68);
     --field:rgba(253,246,227,.72);
-    --sheet:rgba(253,246,227,.97);
+    --sheet:#fbf4e2;
 
     --edge:rgba(88,110,117,.14); --edge-top:rgba(88,110,117,.22);
     --edge-hot:rgba(88,110,117,.30);
@@ -79,7 +79,7 @@
     --glass-from:rgba(7,54,66,.25); --glass-to:rgba(7,54,66,.10);
     --glass-hot-from:rgba(7,54,66,.44); --glass-hot-to:rgba(7,54,66,.24);
     --field:rgba(0,0,0,.35);
-    --sheet:rgba(6,26,32,.97);
+    --sheet:#08191f;
 
     --edge:rgba(147,161,161,.08); --edge-top:rgba(147,161,161,.14);
     --edge-hot:rgba(147,161,161,.24);
@@ -105,7 +105,7 @@
       --glass-from:rgba(7,54,66,.25); --glass-to:rgba(7,54,66,.10);
       --glass-hot-from:rgba(7,54,66,.44); --glass-hot-to:rgba(7,54,66,.24);
       --field:rgba(0,0,0,.35);
-      --sheet:rgba(6,26,32,.97);
+      --sheet:#08191f;
 
       --edge:rgba(147,161,161,.08); --edge-top:rgba(147,161,161,.14);
       --edge-hot:rgba(147,161,161,.24);
@@ -405,7 +405,7 @@
     position:absolute; z-index:30; top:calc(100% + 8px); left:0; width:266px;
     padding:12px; border:1px solid var(--edge); border-top-color:var(--edge-top);
     border-radius:var(--r-md);
-    background:var(--sheet); backdrop-filter:blur(30px) saturate(1.3);
+    background:var(--sheet);
     box-shadow:0 0 0 1px var(--ring), var(--shadow-hi);
     opacity:0; transform:translateY(-6px) scale(.98); transform-origin:top left;
     pointer-events:none; transition:opacity .2s var(--ease), transform .24s var(--ease);
@@ -422,15 +422,15 @@
   }
   .cal-title:hover { border-color:var(--edge-hot); }
   .cal-title:active { transform:scale(.95); }
-  .cal-year {
+  .cal-pick {
     border:none; border-radius:var(--r-sm); background:transparent; color:var(--ink);
     font:13px/1 inherit; font-variant-numeric:tabular-nums; padding:10px 0;
     transition:background var(--tap), color var(--tap), transform .28s var(--spring);
   }
-  .cal-year:hover { background:var(--glass-hot-from); color:var(--heading); }
-  .cal-year:active { transform:scale(.92); }
-  .cal-year.on { background:var(--ink); color:var(--page); }
-  .cal-years { display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; }
+  .cal-pick:hover { background:var(--glass-hot-from); color:var(--heading); }
+  .cal-pick:active { transform:scale(.92); }
+  .cal-pick.on { background:var(--ink); color:var(--page); }
+  .cal-picks { display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; }
   .cal-step {
     width:26px; height:26px; display:grid; place-items:center; padding:0;
     border:1px solid var(--edge); border-radius:var(--r-xs);
@@ -788,7 +788,7 @@ calendar.setAttribute("aria-label", "Pick a date");
 let calField = null;   // the <input type=date> being edited
 let calButton = null;
 let calMonth = null;   // the first of the month on show
-let calView = "days";  // "days" or the year picker behind the title
+let calView = "days";  // "days", "months" or "years" — the title climbs a rung
 
 function parseISO(value) {
   const [y, m, d] = value.split("-").map(Number);
@@ -820,22 +820,40 @@ function head(title, back, forward) {
     </div>`;
 }
 
+function foot(first) {
+  return `<div class="cal-foot">
+       ${first}
+       <button type="button" class="action small" data-close>Close</button>
+     </div>`;
+}
+
 function paintYears() {
   const chosen = calField.value ? parseISO(calField.value).getFullYear() : null;
   const first = Math.floor(calMonth.getFullYear() / YEAR_PAGE) * YEAR_PAGE;
   let cells = "";
   for (let i = 0; i < YEAR_PAGE; i += 1) {
     const year = first + i;
-    cells += `<button type="button" class="cal-year${year === chosen ? " on" : ""}"
+    cells += `<button type="button" class="cal-pick${year === chosen ? " on" : ""}"
                       data-year="${year}">${year}</button>`;
   }
-  calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1} ⌃`,
+  calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1}`,
                             "Earlier years", "Later years") +
-    `<div class="cal-years">${cells}</div>
-     <div class="cal-foot">
-       <button type="button" class="action small" data-view>Back to days</button>
-       <button type="button" class="action small" data-close>Close</button>
-     </div>`;
+    `<div class="cal-picks">${cells}</div>` +
+    foot('<button type="button" class="action small" data-down>Back to months</button>');
+}
+
+function paintMonths() {
+  const picked = calField.value ? parseISO(calField.value) : null;
+  const year = calMonth.getFullYear();
+  let cells = "";
+  MONTH_NAMES.forEach((name, index) => {
+    const on = picked && picked.getFullYear() === year && picked.getMonth() === index;
+    cells += `<button type="button" class="cal-pick${on ? " on" : ""}"
+                      data-month="${index}">${name.slice(0, 3)}</button>`;
+  });
+  calendar.innerHTML = head(`${year} ⌄`, "Previous year", "Next year") +
+    `<div class="cal-picks">${cells}</div>` +
+    foot('<button type="button" class="action small" data-down>Back to days</button>');
 }
 
 function paintDays() {
@@ -864,15 +882,14 @@ function paintDays() {
   calendar.innerHTML =
     head(`${MONTH_NAMES[calMonth.getMonth()]} ${calMonth.getFullYear()} ⌄`,
          "Previous month", "Next month") +
-    `<div class="cal-grid">${names}${cells}</div>
-     <div class="cal-foot">
-       <button type="button" class="action small" data-date="${today}">Today</button>
-       <button type="button" class="action small" data-close>Close</button>
-     </div>`;
+    `<div class="cal-grid">${names}${cells}</div>` +
+    foot(`<button type="button" class="action small" data-date="${today}">Today</button>`);
 }
 
 function paintCalendar() {
-  if (calView === "years") paintYears(); else paintDays();
+  if (calView === "years") paintYears();
+  else if (calView === "months") paintMonths();
+  else paintDays();
 }
 
 function closeCalendar() {
@@ -915,15 +932,21 @@ calendar.addEventListener("click", (event) => {
   if (!target) return;
   if (target.dataset.step) {
     const step = Number(target.dataset.step);
-    calMonth = calView === "years"
-      ? new Date(calMonth.getFullYear() + step * YEAR_PAGE, calMonth.getMonth(), 1)
-      : new Date(calMonth.getFullYear(), calMonth.getMonth() + step, 1);
+    const jump = { years: YEAR_PAGE * 12, months: 12, days: 1 }[calView];
+    calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + step * jump, 1);
     paintCalendar();
   } else if ("view" in target.dataset) {
-    calView = calView === "years" ? "days" : "years";
+    calView = calView === "days" ? "months" : "years";
+    paintCalendar();
+  } else if ("down" in target.dataset) {
+    calView = calView === "years" ? "months" : "days";
     paintCalendar();
   } else if (target.dataset.year) {
     calMonth = new Date(Number(target.dataset.year), calMonth.getMonth(), 1);
+    calView = "months";
+    paintCalendar();
+  } else if (target.dataset.month) {
+    calMonth = new Date(calMonth.getFullYear(), Number(target.dataset.month), 1);
     calView = "days";
     paintCalendar();
   } else if (target.dataset.date) {
