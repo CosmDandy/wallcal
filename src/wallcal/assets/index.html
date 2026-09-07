@@ -3,85 +3,238 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wallcal — build your wallpaper</title>
+<title>Wallcal — build your wallpaper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='16' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='24' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='8' cy='16' r='3' fill='%23586e75'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23cb4b16'/%3E%3Ccircle cx='24' cy='16' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='8' cy='24' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='16' cy='24' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='24' cy='24' r='3' fill='%2393a1a1'/%3E%3C/svg%3E">
 <style>
+  /* The page is dressed like cosmdandy.dev: Solarized on a dotted ground, glass
+     panels, one accent glow. The wallpapers themselves are drawn from the same
+     Solarized ramp, so the builder cannot drift away from what it renders.
+
+     A theme is a swap of the tokens below and nothing else. Light is written on
+     :root, dark twice — for the explicit choice and for the system default.
+     The two cannot be merged: @media and a plain selector never join into one
+     rule. */
   :root {
     --base03:#002b36; --base02:#073642; --base01:#586e75; --base00:#657b83;
     --base0:#839496; --base1:#93a1a1; --base2:#eee8d5; --base3:#fdf6e3;
-    --orange:#cb4b16; --green:#859900; --blue:#268bd2;
-    --radius:8px;
+    --orange:#cb4b16; --green:#859900;
 
-    /* Semantic tones. Solarized is one ramp read from either end, so a theme is
-       a swap of these six, never a change anywhere else in this stylesheet. */
-    --page:var(--base3); --ink:var(--base01); --ink-dim:var(--base00);
-    --ink-faint:var(--base1); --panel:var(--base2); --line:var(--base2);
+    /* One rounding scale for the whole page. Anything that needs a radius picks
+       a step from here, which is what keeps a chip, a panel and the dock from
+       each rounding by a different amount. */
+    --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:22px;
 
-    /* The phone is an object, not part of the page: black, the same in either
-       theme, and the same black as the island — a real one is one piece of
-       glass and shell. The rail is the only lighter tone, and it is what keeps
-       the silhouette off the dark page ground, where a flat black disappears. */
+    /* Two curves for the whole page: `ease` for anything that moves or
+       recolours, `spring` for the small overshoot a control gets when you press
+       it. Durations live here too, so a change of pace is one edit and not
+       forty. --fade is the theme swap: every colour has to travel together, or
+       background, text and borders arrive out of step and it shows. */
+    --ease:cubic-bezier(.32,.72,0,1);
+    --spring:cubic-bezier(.34,1.56,.64,1);
+    --fade:.45s var(--ease);
+    --tap:.2s var(--ease);
+
+    --page:var(--base3);
+    --ink:var(--base01); --ink-dim:var(--base00); --ink-faint:var(--base1);
+    --heading:var(--base02);
+
+    --dots:rgba(88,110,117,.24);
+    --stage-glow:rgba(88,110,117,.20);
+    --cursor-1:rgba(7,54,66,.05); --cursor-2:rgba(7,54,66,.018);
+
+    /* Glass: a surface a little denser than the ground it sits on. On a cream
+       base it has to stay light, or the panel reads as dirt rather than paper. */
+    --glass-from:rgba(238,232,213,.72); --glass-to:rgba(238,232,213,.46);
+    --glass-hot-from:rgba(238,232,213,.92); --glass-hot-to:rgba(238,232,213,.68);
+    --field:rgba(253,246,227,.72);
+    --sheet:rgba(253,246,227,.97);
+
+    --edge:rgba(88,110,117,.14); --edge-top:rgba(88,110,117,.22);
+    --edge-hot:rgba(88,110,117,.30);
+    --ring:rgba(88,110,117,.05);
+    --shadow:0 4px 24px -4px rgba(88,110,117,.18);
+    --shadow-hi:0 8px 32px -4px rgba(88,110,117,.24),
+                0 0 80px -20px rgba(42,161,152,.10);
+
+    --focus:rgba(38,139,210,.6);
+    --sel-bg:rgba(38,139,210,.25); --sel-fg:#073642;
+    --aurora:.55;
+
+    /* The phone is an object, not part of the page: black in either theme, and
+       the same black as the island — a real one is one piece of glass and
+       shell. The rail is the only lighter tone, and it is what keeps the
+       silhouette off a dark page ground, where a flat black disappears. */
     --phone-rail:#2e2e30; --phone-body:#000; --phone-key:#3d3d3f;
     --phone-key-quiet:#1c1c1e;
   }
   :root[data-ui="dark"] {
-    --page:var(--base03); --ink:var(--base1); --ink-dim:var(--base0);
-    --ink-faint:var(--base00); --panel:var(--base02); --line:var(--base02);
+    --page:#000;
+    --ink:var(--base1); --ink-dim:var(--base0); --ink-faint:var(--base01);
+    --heading:#ededed;
+
+    --dots:rgba(147,161,161,.32);
+    --stage-glow:rgba(147,161,161,.16);
+    --cursor-1:rgba(237,237,237,.035); --cursor-2:rgba(237,237,237,.012);
+
+    --glass-from:rgba(7,54,66,.25); --glass-to:rgba(7,54,66,.10);
+    --glass-hot-from:rgba(7,54,66,.44); --glass-hot-to:rgba(7,54,66,.24);
+    --field:rgba(0,0,0,.35);
+    --sheet:rgba(6,26,32,.97);
+
+    --edge:rgba(147,161,161,.08); --edge-top:rgba(147,161,161,.14);
+    --edge-hot:rgba(147,161,161,.24);
+    --ring:rgba(147,161,161,.04);
+    --shadow:0 4px 24px -4px rgba(0,0,0,.7);
+    --shadow-hi:0 8px 32px -4px rgba(0,0,0,.8),
+                0 0 80px -20px rgba(42,161,152,.06);
+
+    --focus:rgba(0,220,255,.5);
+    --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
+    --aurora:.95;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-ui="light"]) {
-      --page:var(--base03); --ink:var(--base1); --ink-dim:var(--base0);
-      --ink-faint:var(--base00); --panel:var(--base02); --line:var(--base02);
+      --page:#000;
+      --ink:var(--base1); --ink-dim:var(--base0); --ink-faint:var(--base01);
+      --heading:#ededed;
+
+      --dots:rgba(147,161,161,.32);
+      --stage-glow:rgba(147,161,161,.16);
+      --cursor-1:rgba(237,237,237,.035); --cursor-2:rgba(237,237,237,.012);
+
+      --glass-from:rgba(7,54,66,.25); --glass-to:rgba(7,54,66,.10);
+      --glass-hot-from:rgba(7,54,66,.44); --glass-hot-to:rgba(7,54,66,.24);
+      --field:rgba(0,0,0,.35);
+      --sheet:rgba(6,26,32,.97);
+
+      --edge:rgba(147,161,161,.08); --edge-top:rgba(147,161,161,.14);
+      --edge-hot:rgba(147,161,161,.24);
+      --ring:rgba(147,161,161,.04);
+      --shadow:0 4px 24px -4px rgba(0,0,0,.7);
+      --shadow-hi:0 8px 32px -4px rgba(0,0,0,.8),
+                  0 0 80px -20px rgba(42,161,152,.06);
+
+      --focus:rgba(0,220,255,.5);
+      --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
+      --aurora:.95;
     }
   }
+
   * { box-sizing:border-box; }
+  html { overflow-x:clip; }  /* the aurora runs wider than the viewport */
   body {
-    margin:0; background:var(--page); color:var(--ink);
+    margin:0; background:var(--page); color:var(--ink); min-height:100vh;
+    transition:background-color var(--fade), color var(--fade);
     font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font-variant-numeric:tabular-nums;
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+    overflow-x:clip;
   }
-  header {
-    position:sticky; top:0; z-index:10; background:var(--page);
-    border-bottom:1px solid var(--line); padding:14px 24px;
-  }
-  .bar { display:flex; gap:10px; align-items:center; max-width:1180px; margin:0 auto; }
-  .brand { font-weight:600; color:var(--ink); letter-spacing:-.01em; }
-  #url {
-    flex:1; cursor:text; font:13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    background:var(--panel); color:var(--ink); border:1px solid transparent;
-    border-radius:var(--radius); padding:9px 12px; overflow-x:auto; white-space:nowrap;
-  }
-  button { font:inherit; cursor:pointer; }
-  .action {
-    border:1px solid var(--line); background:var(--page); color:var(--ink);
-    border-radius:var(--radius); padding:9px 14px; white-space:nowrap;
-  }
-  .action:hover { border-color:var(--ink-faint); color:var(--ink); }
-  .action.copied { background:var(--green); border-color:var(--green); color:var(--base3); }
-  .action.failed { background:var(--orange); border-color:var(--orange); color:var(--base3); }
+  ::selection { background:var(--sel-bg); color:var(--sel-fg); }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 
-  main { max-width:1240px; margin:0 auto; padding:24px; display:grid;
-         grid-template-columns: 330px minmax(0,1fr); gap:36px; align-items:start; }
-  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+  .dots {
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:radial-gradient(circle, var(--dots) 1px, transparent 1px);
+    background-size:24px 24px;
+  }
+  /* Under the panels rather than over them: the glass is translucent, so the
+     light still shows through, and the wallpaper preview stays untinted. */
+  .cursor-glow {
+    position:fixed; z-index:0; width:600px; height:600px; border-radius:50%;
+    pointer-events:none; opacity:0; transition:opacity .4s;
+    transform:translate(-50%,-50%);
+    background:radial-gradient(circle at center,
+      var(--cursor-1) 0%, var(--cursor-2) 35%, transparent 60%);
+  }
+  .cursor-glow.on { opacity:1; }
+  /* One stain of colour behind the masthead, identical in both themes: on the
+     cream ground it reads as watercolour, on black as a light leak. */
+  .aurora {
+    position:fixed; z-index:0; top:-300px; left:50%; translate:-50% 0;
+    width:min(1500px,160vw); height:700px; border-radius:80px;
+    filter:blur(150px); pointer-events:none; opacity:var(--aurora);
+    transition:opacity var(--fade);
+    background:linear-gradient(45deg,
+      rgba(255,50,100,.45) 0%, rgba(255,80,150,.30) 25%, rgba(120,40,220,.18) 50%,
+      rgba(0,220,255,.30) 75%, rgba(0,255,255,.45) 100%);
+  }
 
-  /* Two fieldsets share a row where their controls are short, one takes the
-     full width where the rows are long. */
-  #controls { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0 32px; }
-  @media (max-width: 620px) { #controls { grid-template-columns:1fr; } }
-  fieldset { border:none; margin:0 0 26px; padding:0; min-width:0; }
+  header { position:relative; z-index:2; padding:44px 24px 6px; }
+  .bar { display:flex; align-items:flex-start; gap:20px; max-width:1240px; margin:0 auto; }
+  .ident { flex:1; min-width:0; }
+  h1 {
+    margin:0; font-size:1.55rem; font-weight:600; letter-spacing:-.025em;
+    color:var(--heading);
+  }
+  /* The name is the quieter half of the line: this is the project's page, not a
+     signature on it. Same string, same setting as on cosmdandy.dev. */
+  h1 .who { font-weight:400; color:var(--ink-dim); text-decoration:none;
+             transition:color var(--tap); }
+  h1 .who:hover { color:var(--heading); }
+  h1 .sep { color:var(--ink-faint); margin:0 .4em; font-weight:400; }
+  .bio { margin:7px 0 0; font-size:.82rem; color:var(--ink-dim); }
+
+  main {
+    position:relative; z-index:2; max-width:1240px; margin:0 auto;
+    padding:22px 24px calc(var(--dock-h, 132px) + 28px);
+    display:grid; grid-template-columns:360px minmax(0,1fr); gap:34px; align-items:start;
+  }
+  @media (max-width:980px) { main { grid-template-columns:1fr; } }
+
+  /* Panels sit two to a row where their controls are short, one across where
+     the rows are long. */
+  #controls { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+  @media (max-width:640px) { #controls { grid-template-columns:1fr; } }
+
+  .panel {
+    position:relative; min-width:0; margin:0; padding:42px 18px 16px;
+    border:1px solid var(--edge); border-top-color:var(--edge-top);
+    border-radius:var(--r-md);
+    background:linear-gradient(180deg, var(--glass-from) 0%, var(--glass-to) 100%);
+    backdrop-filter:blur(25px);
+    box-shadow:0 0 0 1px var(--ring), var(--shadow);
+    transition:border-color var(--fade), box-shadow var(--fade), background var(--fade);
+  }
+  .panel:hover { border-color:var(--edge-hot); box-shadow:0 0 0 1px var(--ring), var(--shadow-hi); }
   fieldset.wide { grid-column:1 / -1; }
+  .panel.above { z-index:5; }
+  fieldset.split { display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
+                   column-gap:30px; align-content:start; }
+  @media (max-width:640px) { fieldset.split { grid-template-columns:1fr; } }
+  /* Ten swatches do not fit half a panel, and wrapping them onto a second line
+     makes the pair of columns sit at different heights. */
+  .split .row.full { grid-column:1 / -1; }
+  /* A <legend> is laid out inside the fieldset's top border, which a rounded,
+     filled panel has no notch for. Taking it out of flow puts it where a
+     heading belongs and leaves the border unbroken; the panel's top padding is
+     the room it sits in. */
   legend {
+    position:absolute; top:17px; left:19px; padding:0;
     font-size:11px; letter-spacing:.09em; text-transform:uppercase;
-    color:var(--ink-faint); padding:0 0 10px;
+    color:var(--ink-faint);
   }
   .row { display:grid; grid-template-columns:118px minmax(0,1fr); gap:12px;
-         align-items:center; margin-bottom:9px; }
+         align-items:center; margin-bottom:10px; }
+  .row:last-child { margin-bottom:0; }
   .row > label { font-size:13px; color:var(--ink-dim); }
+  /* A fixed label column costs a third of a phone screen, which is what pushed
+     the text fields into a sliver. Below that width the label sits above. */
+  @media (max-width:560px) { .row { grid-template-columns:1fr; gap:6px; } }
 
-  .seg { display:inline-flex; flex-wrap:wrap; gap:4px; }
+  button { font:inherit; cursor:pointer; }
+  .seg { display:inline-flex; flex-wrap:wrap; gap:5px; }
   .seg button {
-    border:1px solid var(--line); background:var(--page); color:var(--ink-dim);
-    border-radius:var(--radius); padding:6px 11px; font-size:13px; line-height:1.2;
+    border:1px solid var(--edge); background:transparent; color:var(--ink-dim);
+    border-radius:var(--r-sm); padding:6px 11px; font-size:13px; line-height:1.2;
+    transition:color var(--tap), border-color var(--tap), background var(--tap),
+               transform .28s var(--spring);
   }
-  .seg button:hover { border-color:var(--ink-faint); }
+  .seg button:active { transform:scale(.94); }
+  .seg button:hover {
+    color:var(--ink); border-color:var(--edge-hot);
+    background:linear-gradient(180deg, var(--glass-hot-from) 0%, var(--glass-hot-to) 100%);
+  }
   .seg button[aria-pressed="true"] {
     background:var(--ink); border-color:var(--ink); color:var(--page);
   }
@@ -90,30 +243,56 @@
   .swatches button {
     width:26px; height:26px; border-radius:50%; border:2px solid transparent;
     padding:0; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1), border-color .25s;
   }
+  .swatches button:hover { transform:translateY(-1px) scale(1.08); }
+  .swatches button:active { transform:scale(.9); }
   .swatches button[aria-pressed="true"] { border-color:var(--ink); }
 
-  input[type=date], input[type=text] {
-    font:inherit; color:var(--ink); background:var(--page);
-    border:1px solid var(--line); border-radius:var(--radius); padding:6px 10px;
+  input[type=text] {
+    font:inherit; color:var(--ink); background:var(--field);
+    border:1px solid var(--edge); border-radius:var(--r-sm); padding:6px 10px;
+    transition:background var(--fade), color var(--fade), border-color var(--tap),
+               box-shadow var(--tap);
   }
+  input[type=text]:focus { border-color:var(--edge-hot); outline:none;
+                           box-shadow:0 0 0 3px var(--ring); }
   input[type=text] { width:100%; max-width:420px; }
-  input[type=range] { flex:1; min-width:120px; accent-color:var(--ink); }
+  input[type=text]::placeholder { color:var(--ink-faint); }
+  input[type=range] { flex:1; min-width:90px; accent-color:var(--ink); }
   output { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--ink-dim);
            min-width:3.2em; text-align:right; }
   .inline { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .inline input[type=text] { flex:1; min-width:140px; }
-  .action.small { padding:6px 11px; font-size:13px; }
 
-  aside { position:sticky; top:88px; }
+  .action {
+    border:1px solid var(--edge); border-top-color:var(--edge-top);
+    background:linear-gradient(180deg, var(--glass-from) 0%, var(--glass-to) 100%);
+    color:var(--ink); border-radius:var(--r-sm); padding:9px 15px; white-space:nowrap;
+    box-shadow:0 0 0 1px var(--ring), var(--shadow);
+    transition:transform .44s cubic-bezier(.34,1.56,.64,1), box-shadow .4s,
+               background .3s, border-color .3s, color .3s;
+  }
+  .action:hover {
+    color:var(--heading); border-color:var(--edge-hot);
+    background:linear-gradient(180deg, var(--glass-hot-from) 0%, var(--glass-hot-to) 100%);
+    box-shadow:0 0 0 1px var(--ring), var(--shadow-hi);
+    transform:translate3d(0,-1px,0);
+  }
+  .action:active { transform:scale(.96); }
+  .action.small { padding:6px 11px; font-size:13px; }
+  .action.copied { background:var(--green); border-color:var(--green); color:var(--base3); }
+  .action.failed { background:var(--orange); border-color:var(--orange); color:var(--base3); }
+
+  aside { position:sticky; top:24px; }
 
   /* Phone shell: all CSS, no artwork. Proportions and radii follow a real
      393x852 device — bezel 12, shell corner 55, screen corner 47 — scaled by
      --s, which is what keeps the rounding of the screen honest at any size. */
-  .stage { position:relative; display:flex; justify-content:center; margin:0; padding:22px 0 34px; }
+  .stage { position:relative; display:flex; justify-content:center; margin:0; padding:14px 0 26px; }
   .stage::before {
-    content:""; position:absolute; inset:6% 2% 10%; border-radius:40px;
-    background:radial-gradient(ellipse at 50% 45%, var(--panel) 0%, transparent 70%);
+    content:""; position:absolute; inset:6% 2% 10%; border-radius:var(--r-lg);
+    background:radial-gradient(ellipse at 50% 45%, var(--stage-glow) 0%, transparent 70%);
     filter:blur(46px);
   }
   .phone { --s:.74; position:relative; width:calc(393px * var(--s)); height:calc(852px * var(--s)); }
@@ -137,7 +316,7 @@
   .btn.right { right:calc(-2px * var(--s)); border-radius:0 calc(2px * var(--s)) calc(2px * var(--s)) 0; }
   /* The action key is the shortest one and sits nearest the corner, where a
      bright stub catches the eye out of proportion to its size. */
-  .action {
+  .key-action {
     top:calc(163px * var(--s)); height:calc(34px * var(--s));
     background:var(--phone-key-quiet);
   }
@@ -167,19 +346,171 @@
     background:#141417; box-shadow:inset 0 0 3px rgba(0,0,0,.8);
   }
   @media (max-width:420px) { .phone { --s:.6; } }
-  .hint { font-size:12px; color:var(--ink-faint); margin:10px 2px 0; }
-  code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--panel);
-         padding:1px 5px; border-radius:4px; }
+
+  /* The link is the product, so it gets a shelf of its own at the foot of the
+     page instead of a slot in the masthead. Docked rather than scrolled away:
+     it is what you came to copy, and it stays reachable from any panel above.
+     It wraps — a wallpaper URL carrying a quote is long, and a sideways scroll
+     hides the end of the very thing you are meant to read. */
+  .dock { position:fixed; z-index:20; left:0; right:0; bottom:0; padding:0 24px 18px; pointer-events:none; }
+  .dock-inner {
+    pointer-events:auto; display:flex; gap:16px; align-items:flex-end;
+    max-width:1240px; margin:0 auto; padding:14px 16px;
+    border:1px solid var(--edge); border-top-color:var(--edge-top);
+    border-radius:var(--r-lg);
+    background:linear-gradient(180deg, var(--glass-hot-from) 0%, var(--glass-hot-to) 100%);
+    backdrop-filter:blur(30px) saturate(1.3);
+    box-shadow:0 0 0 1px var(--ring), var(--shadow-hi);
+  }
+  .dock-text { flex:1; min-width:0; }
+  .label {
+    display:flex; align-items:center; gap:7px; margin-bottom:7px;
+    font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint);
+  }
+  .live-dot {
+    width:6px; height:6px; border-radius:50%; background:var(--green);
+    box-shadow:0 0 6px rgba(133,153,0,.6); animation:livePulse 2.5s ease-in-out infinite;
+  }
+  @keyframes livePulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .cursor-glow { display:none; }
+  }
+  #url {
+    cursor:text; color:var(--ink); overflow-wrap:anywhere;
+    font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .dock-actions { display:flex; gap:8px; flex-shrink:0; }
+  @media (max-width:560px) {
+    .dock-inner { flex-direction:column; align-items:stretch; }
+    .dock-actions .action { flex:1; }
+  }
+
+
+  /* ── Dates ────────────────────────────────────────────────────────────────
+     The native date input draws a calendar of the browser's own, in the
+     browser's own colours, and nothing in CSS reaches inside it. So the input
+     stays for its value and its parsing, hidden, and the field you see is a
+     button opening a calendar built out of the same panels and chips as the
+     rest of the page. */
+  .datefield { position:relative; display:inline-block; }
+  .datebtn {
+    display:inline-flex; align-items:center; gap:9px; min-width:160px;
+    font:inherit; padding:7px 12px; text-align:left;
+  }
+  .datebtn svg { flex-shrink:0; opacity:.7; }
+  .datebtn .day { font-variant-numeric:tabular-nums; }
+
+  .cal {
+    position:absolute; z-index:30; top:calc(100% + 8px); left:0; width:266px;
+    padding:12px; border:1px solid var(--edge); border-top-color:var(--edge-top);
+    border-radius:var(--r-md);
+    background:var(--sheet); backdrop-filter:blur(30px) saturate(1.3);
+    box-shadow:0 0 0 1px var(--ring), var(--shadow-hi);
+    opacity:0; transform:translateY(-6px) scale(.98); transform-origin:top left;
+    pointer-events:none; transition:opacity .2s var(--ease), transform .24s var(--ease);
+  }
+  .cal.open { opacity:1; transform:none; pointer-events:auto; }
+  /* A calendar hanging off the right-hand field would run past the panel. */
+  .cal.flip { left:auto; right:0; transform-origin:top right; }
+  .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .cal-title {
+    font:inherit; font-size:13px; font-weight:600; letter-spacing:-.01em;
+    color:var(--heading); background:transparent; border:1px solid transparent;
+    border-radius:var(--r-xs); padding:3px 9px;
+    transition:background var(--tap), border-color var(--tap), transform .28s var(--spring);
+  }
+  .cal-title:hover { border-color:var(--edge-hot); }
+  .cal-title:active { transform:scale(.95); }
+  .cal-year {
+    border:none; border-radius:var(--r-sm); background:transparent; color:var(--ink);
+    font:13px/1 inherit; font-variant-numeric:tabular-nums; padding:10px 0;
+    transition:background var(--tap), color var(--tap), transform .28s var(--spring);
+  }
+  .cal-year:hover { background:var(--glass-hot-from); color:var(--heading); }
+  .cal-year:active { transform:scale(.92); }
+  .cal-year.on { background:var(--ink); color:var(--page); }
+  .cal-years { display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; }
+  .cal-step {
+    width:26px; height:26px; display:grid; place-items:center; padding:0;
+    border:1px solid var(--edge); border-radius:var(--r-xs);
+    background:transparent; color:var(--ink-dim); line-height:1;
+    transition:color var(--tap), border-color var(--tap), background var(--tap),
+               transform .28s var(--spring);
+  }
+  .cal-step:hover { color:var(--heading); border-color:var(--edge-hot); }
+  .cal-step:active { transform:scale(.9); }
+  .cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+  .cal-wd {
+    font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--ink-faint); text-align:center; padding-bottom:4px;
+  }
+  .cal-day {
+    aspect-ratio:1; border:none; border-radius:50%; background:transparent;
+    color:var(--ink); font:13px/1 inherit; font-variant-numeric:tabular-nums;
+    transition:background var(--tap), color var(--tap), transform .28s var(--spring);
+  }
+  .cal-day.dim { color:var(--ink-faint); }
+  .cal-day:hover { background:var(--glass-hot-from); color:var(--heading); }
+  .cal-day:active { transform:scale(.88); }
+  .cal-day.today { box-shadow:inset 0 0 0 1px var(--orange); color:var(--orange); }
+  .cal-day.on { background:var(--ink); color:var(--page); }
+  .cal-foot { display:flex; justify-content:space-between; margin-top:10px; }
+  .cal-foot button { font-size:12px; padding:5px 10px; }
+
+  /* ── Copy ─────────────────────────────────────────────────────────────────
+     The tick is drawn, not shown: its stroke runs on when the text lands in the
+     clipboard, which is the only confirmation a copy ever gets. */
+  #copy { display:inline-flex; align-items:center; gap:7px; }
+  .tick {
+    width:0; opacity:0; overflow:visible;
+    transition:width .28s var(--ease), opacity .2s var(--ease);
+  }
+  .tick path { stroke-dasharray:18; stroke-dashoffset:18; }
+  .action.copied .tick { width:15px; opacity:1; }
+  .action.copied .tick path { animation:tickDraw .32s var(--ease) forwards; }
+  @keyframes tickDraw { to { stroke-dashoffset:0; } }
+
+  /* ── Arrival ──────────────────────────────────────────────────────────────
+     The page assembles rather than appearing: masthead, phone, panels in turn,
+     dock last. Only on load — a re-render must never replay it. */
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+  @keyframes dockUp { from { opacity:0; transform:translateY(26px); } to { opacity:1; transform:none; } }
+  header, aside, .panel { animation:rise .5s var(--ease) both; }
+  aside { animation-delay:.06s; }
+  .panel:nth-of-type(1) { animation-delay:.10s; }
+  .panel:nth-of-type(2) { animation-delay:.14s; }
+  .panel:nth-of-type(3) { animation-delay:.18s; }
+  .panel:nth-of-type(4) { animation-delay:.22s; }
+  .panel:nth-of-type(5) { animation-delay:.26s; }
+  .panel:nth-of-type(6) { animation-delay:.30s; }
+  .panel:nth-of-type(7) { animation-delay:.34s; }
+  .dock-inner { animation:dockUp .55s var(--ease) .3s both; }
+
+  /* A new wallpaper is a fresh HTTP request; without this the phone blinks from
+     one drawing to the next. */
+  .shot { transition:opacity .3s var(--ease); }
+  .shot.loading { opacity:.45; }
+
+  .hint { font-size:12px; color:var(--ink-faint); margin:12px 2px 0; }
+  code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace;
+         background:var(--field); border:1px solid var(--edge);
+         padding:1px 5px; border-radius:var(--r-xs); }
 </style>
 </head>
 <body>
 
+<div class="dots"></div>
+<div class="cursor-glow" id="cursor-glow"></div>
+
 <header>
+  <div class="aurora" aria-hidden="true"></div>
   <div class="bar">
-    <span class="brand">wallcal</span>
-    <div id="url"></div>
-    <button class="action" id="copy">Copy</button>
-    <button class="action" id="open">Open</button>
+    <div class="ident">
+      <h1><a class="who" href="https://cosmdandy.dev" target="_blank"
+             rel="noopener">Timofey Kondrashin</a><span class="sep">·</span>Wallcal</h1>
+      <p class="bio">Calendar wallpapers for a phone, rendered straight from a URL</p>
+    </div>
     <span class="seg" id="ui-theme">
       <button type="button" data-ui="auto" title="Follow the system">Auto</button>
       <button type="button" data-ui="light" title="Light">☀</button>
@@ -193,7 +524,7 @@
     <figure class="stage">
       <div class="phone">
         <div class="shell">
-          <i class="btn left action"></i>
+          <i class="btn left key-action"></i>
           <i class="btn left vol-up"></i>
           <i class="btn left vol-down"></i>
           <i class="btn right side"></i>
@@ -205,12 +536,12 @@
       </div>
     </figure>
     <p class="hint">
-      Point a daily iOS Shortcut or MacroDroid macro at the link above.
+      Point a daily iOS Shortcut or MacroDroid macro at the link below.
       Turn the mock-up off before you do — <code>pv=1</code> draws the clock and buttons.
     </p>
   </aside>
   <form id="controls">
-    <fieldset>
+    <fieldset class="panel">
       <legend>Span</legend>
       <div class="row">
         <label>Mode</label>
@@ -222,12 +553,24 @@
         </span>
       </div>
       <div class="row" data-span-only>
-        <label for="from">From</label>
-        <span><input type="date" id="from"></span>
+        <label for="from-btn">From</label>
+        <span class="datefield">
+          <button type="button" class="action datebtn" id="from-btn"
+                  aria-haspopup="dialog" aria-expanded="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span class="day" id="from-label"></span>
+          </button>
+          <input type="date" id="from" hidden>
+        </span>
       </div>
       <div class="row" data-span-only>
-        <label for="to">To</label>
-        <span><input type="date" id="to"></span>
+        <label for="to-btn">To</label>
+        <span class="datefield">
+          <button type="button" class="action datebtn" id="to-btn"
+                  aria-haspopup="dialog" aria-expanded="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span class="day" id="to-label"></span>
+          </button>
+          <input type="date" id="to" hidden>
+        </span>
       </div>
       <div class="row" data-span-only>
         <label>Presets</label>
@@ -241,7 +584,7 @@
       <p class="hint" id="mode-hint"></p>
     </fieldset>
 
-    <fieldset>
+    <fieldset class="panel">
       <legend>Screen</legend>
       <div class="row"><label>Device</label><span class="seg" data-key="d"></span></div>
       <div class="row"><label>Clock</label><span class="seg" data-key="ck"></span></div>
@@ -256,7 +599,7 @@
       <div class="row"><label>Mock-up</label><span class="seg" data-key="pv"></span></div>
     </fieldset>
 
-    <fieldset>
+    <fieldset class="panel">
       <legend>Grid</legend>
       <div class="row"><label>Shape</label><span class="seg" data-key="s"></span></div>
       <div class="row"><label>Weeks per row</label><span class="seg" data-key="g"></span></div>
@@ -265,7 +608,7 @@
       <div class="row"><label>Fade the past</label><span class="seg" data-key="fd"></span></div>
     </fieldset>
 
-    <fieldset>
+    <fieldset class="panel">
       <legend>Labels</legend>
       <div class="row"><label>Axes</label><span class="seg" data-key="ax"></span></div>
       <div class="row"><label>Placement</label><span class="seg" data-key="lb"></span></div>
@@ -275,21 +618,21 @@
       <div class="row"><label>Week starts</label><span class="seg" data-key="wd"></span></div>
     </fieldset>
 
-    <fieldset class="wide">
+    <fieldset class="panel wide split">
       <legend>Highlights</legend>
       <div class="row"><label>Weekends</label><span class="seg" data-key="we"></span></div>
       <div class="row"><label>Month ends</label><span class="seg" data-key="mk"></span></div>
-      <div class="row"><label>Today</label><span class="swatches" data-key="a"></span></div>
-      <div class="row"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
+      <div class="row full"><label>Today</label><span class="swatches" data-key="a"></span></div>
+      <div class="row full"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
     </fieldset>
 
-    <fieldset class="wide">
+    <fieldset class="panel wide">
       <legend>Theme</legend>
       <div class="row"><label>Background</label><span class="seg" data-key="th"></span></div>
       <div class="row"><label>Dots</label><span class="seg" data-key="ink"></span></div>
     </fieldset>
 
-    <fieldset class="wide">
+    <fieldset class="panel wide">
       <legend>Footer</legend>
       <div class="row"><label>Line</label><span class="seg" data-key="ft"></span></div>
       <div class="row"><label>Progress rule</label><span class="seg" data-key="br"></span></div>
@@ -312,6 +655,24 @@
     </fieldset>
   </form>
 </main>
+
+<div class="dock" id="dock">
+  <div class="dock-inner">
+    <div class="dock-text">
+      <span class="label"><i class="live-dot"></i>Endpoint</span>
+      <div id="url"></div>
+    </div>
+    <div class="dock-actions">
+      <button class="action" id="copy">
+        <svg class="tick" width="15" height="15" viewBox="0 0 16 16" fill="none"
+             stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.4 6.4 12.3 13.5 4"/></svg>
+        <span class="copy-label">Copy</span>
+      </button>
+      <button class="action" id="open">Open</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const OPTIONS = {
@@ -379,8 +740,13 @@ let rotation = { today: null, quotes: [] };
 const toInput = document.getElementById("to");
 const urlBox = document.getElementById("url");
 const shot = document.getElementById("shot");
+shot.addEventListener("load", () => shot.classList.remove("loading"));
+shot.addEventListener("error", () => shot.classList.remove("loading"));
 
-function iso(date) { return date.toISOString().slice(0, 10); }
+function iso(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
 function applyPreset(name) {
   const now = new Date();
@@ -403,6 +769,182 @@ function applyPreset(name) {
   toInput.value = iso(end);
   render();
 }
+
+
+// ── The calendar ────────────────────────────────────────────────────────────
+// A native date input opens the browser's own calendar, drawn in the browser's
+// own colours, and no stylesheet reaches inside it. The input is kept — it is
+// still what holds and parses the value — but hidden behind a button, and this
+// is what drops down instead. One instance serves both fields: it is moved into
+// whichever .datefield was opened, so its position needs no measuring.
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+                     "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+const calendar = document.createElement("div");
+calendar.className = "cal";
+calendar.setAttribute("role", "dialog");
+calendar.setAttribute("aria-label", "Pick a date");
+let calField = null;   // the <input type=date> being edited
+let calButton = null;
+let calMonth = null;   // the first of the month on show
+let calView = "days";  // "days" or the year picker behind the title
+
+function parseISO(value) {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function dayLabel(value) {
+  if (!value) return "—";
+  return parseISO(value).toLocaleDateString("en-GB",
+    { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function paintDates() {
+  for (const key of ["from", "to"]) {
+    document.getElementById(`${key}-label`).textContent =
+      dayLabel(document.getElementById(key).value);
+  }
+}
+
+// Twelve years to a page: a span this wide reaches a birth year or a decade
+// from now in one or two steps, which stepping month by month never does.
+const YEAR_PAGE = 12;
+
+function head(title, back, forward) {
+  return `<div class="cal-head">
+      <button type="button" class="cal-step" data-step="-1" aria-label="${back}">‹</button>
+      <button type="button" class="cal-title" data-view>${title}</button>
+      <button type="button" class="cal-step" data-step="1" aria-label="${forward}">›</button>
+    </div>`;
+}
+
+function paintYears() {
+  const chosen = calField.value ? parseISO(calField.value).getFullYear() : null;
+  const first = Math.floor(calMonth.getFullYear() / YEAR_PAGE) * YEAR_PAGE;
+  let cells = "";
+  for (let i = 0; i < YEAR_PAGE; i += 1) {
+    const year = first + i;
+    cells += `<button type="button" class="cal-year${year === chosen ? " on" : ""}"
+                      data-year="${year}">${year}</button>`;
+  }
+  calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1} ⌃`,
+                            "Earlier years", "Later years") +
+    `<div class="cal-years">${cells}</div>
+     <div class="cal-foot">
+       <button type="button" class="action small" data-view>Back to days</button>
+       <button type="button" class="action small" data-close>Close</button>
+     </div>`;
+}
+
+function paintDays() {
+  const first = calMonth.getDay();               // 0 = Sunday
+  const weekStart = state.wd === "6" ? 6 : 0;    // 0 = Monday, 6 = Sunday
+  const lead = (first - 1 - weekStart + 7) % 7;
+  const start = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1 - lead);
+  const chosen = calField.value;
+  const today = iso(new Date());
+
+  const names = WEEKDAYS.slice(weekStart === 6 ? 6 : 0)
+    .concat(weekStart === 6 ? WEEKDAYS.slice(0, 6) : [])
+    .map((name) => `<span class="cal-wd">${name}</span>`).join("");
+
+  let cells = "";
+  for (let i = 0; i < 42; i += 1) {
+    const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const value = iso(day);
+    const classes = ["cal-day"];
+    if (day.getMonth() !== calMonth.getMonth()) classes.push("dim");
+    if (value === today) classes.push("today");
+    if (value === chosen) classes.push("on");
+    cells += `<button type="button" class="${classes.join(" ")}" data-date="${value}">${day.getDate()}</button>`;
+  }
+
+  calendar.innerHTML =
+    head(`${MONTH_NAMES[calMonth.getMonth()]} ${calMonth.getFullYear()} ⌄`,
+         "Previous month", "Next month") +
+    `<div class="cal-grid">${names}${cells}</div>
+     <div class="cal-foot">
+       <button type="button" class="action small" data-date="${today}">Today</button>
+       <button type="button" class="action small" data-close>Close</button>
+     </div>`;
+}
+
+function paintCalendar() {
+  if (calView === "years") paintYears(); else paintDays();
+}
+
+function closeCalendar() {
+  if (!calButton) return;
+  calendar.classList.remove("open");
+  calButton.closest(".panel").classList.remove("above");
+  calButton.setAttribute("aria-expanded", "false");
+  calButton = null;
+  calField = null;
+}
+
+function openCalendar(button, field) {
+  if (calButton === button) { closeCalendar(); return; }
+  closeCalendar();
+  calButton = button;
+  calField = field;
+  calMonth = field.value ? parseISO(field.value) : new Date();
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
+  calView = "days";
+  button.parentNode.append(calendar);
+  button.closest(".panel").classList.add("above");
+  button.setAttribute("aria-expanded", "true");
+  paintCalendar();
+  // Opened from a field near the right edge it would hang off the panel.
+  calendar.classList.remove("flip");
+  requestAnimationFrame(() => {
+    if (calendar.getBoundingClientRect().right > window.innerWidth - 8) {
+      calendar.classList.add("flip");
+    }
+    calendar.classList.add("open");
+  });
+}
+
+calendar.addEventListener("click", (event) => {
+  // Stepping a month rewrites the grid, which detaches the button that was
+  // clicked; by the time the event reaches the document, `closest` on it finds
+  // nothing and the outside-click handler would take that for a click away.
+  event.stopPropagation();
+  const target = event.target.closest("button");
+  if (!target) return;
+  if (target.dataset.step) {
+    const step = Number(target.dataset.step);
+    calMonth = calView === "years"
+      ? new Date(calMonth.getFullYear() + step * YEAR_PAGE, calMonth.getMonth(), 1)
+      : new Date(calMonth.getFullYear(), calMonth.getMonth() + step, 1);
+    paintCalendar();
+  } else if ("view" in target.dataset) {
+    calView = calView === "years" ? "days" : "years";
+    paintCalendar();
+  } else if (target.dataset.year) {
+    calMonth = new Date(Number(target.dataset.year), calMonth.getMonth(), 1);
+    calView = "days";
+    paintCalendar();
+  } else if (target.dataset.date) {
+    calField.value = target.dataset.date;
+    closeCalendar();
+    render();
+  } else if ("close" in target.dataset) {
+    closeCalendar();
+  }
+});
+
+for (const key of ["from", "to"]) {
+  const button = document.getElementById(`${key}-btn`);
+  button.addEventListener("click", () => openCalendar(button, document.getElementById(key)));
+}
+document.addEventListener("click", (event) => {
+  if (calButton && !event.target.closest(".datefield")) closeCalendar();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeCalendar();
+});
 
 function buildSegments() {
   for (const [key, spec] of Object.entries(OPTIONS)) {
@@ -448,6 +990,7 @@ function paintModes() {
 
 function paintSelection() {
   paintModes();
+  paintDates();
   nudge.value = state.sh;
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
   document.querySelectorAll("[data-key]").forEach((host) => {
@@ -516,7 +1059,11 @@ function render() {
   save();
   const preview = `${location.origin}/w/${mode}.png?${query({ forPreview: true })}`;
   clearTimeout(timer);
-  timer = setTimeout(() => { shot.src = preview; }, 120);
+  timer = setTimeout(() => {
+    if (shot.src === preview) return;
+    shot.classList.add("loading");
+    shot.src = preview;
+  }, 120);
 }
 
 document.getElementById("modes").addEventListener("click", (event) => {
@@ -553,14 +1100,15 @@ async function copyText(text) {
 }
 
 function flash(button, label, good) {
-  const original = button.textContent;
-  button.textContent = label;
+  const text = button.querySelector(".copy-label") || button;
+  const original = text.textContent;
+  text.textContent = label;
   button.classList.toggle("copied", good);
   button.classList.toggle("failed", !good);
   setTimeout(() => {
-    button.textContent = original;
+    text.textContent = original;
     button.classList.remove("copied", "failed");
-  }, good ? 1200 : 2400);
+  }, good ? 1400 : 2400);
 }
 
 document.getElementById("copy").addEventListener("click", async (event) => {
@@ -656,6 +1204,52 @@ fetch("/api/quotes")
   .then((response) => response.json())
   .then((data) => { rotation = data; showQuote(); })
   .catch(() => {});
+
+// The dock floats over the page, so the page has to know how tall it is: a link
+// with a quote in it wraps onto a third line, and a fixed padding at the bottom
+// of <main> would then bury the last panel underneath it.
+const dock = document.getElementById("dock");
+if (window.ResizeObserver) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--dock-h", `${dock.offsetHeight}px`);
+  }).observe(dock);
+}
+
+// The glow trails the pointer and the dotted ground drifts against it by ten
+// pixels — enough that the grid reads as a layer of its own rather than as a
+// texture printed on the page. Both are eased in one frame loop; the shift is
+// written to the layer itself, never to a variable on :root, which would send
+// the browser off to restyle the whole document once a frame.
+const cursorGlow = document.getElementById("cursor-glow");
+const ground = document.querySelector(".dots");
+const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (window.matchMedia("(hover: hover)").matches && !still) {
+  let pointerX = window.innerWidth / 2;
+  let pointerY = window.innerHeight / 2;
+  let glowX = pointerX, glowY = pointerY;
+  let driftX = 0, driftY = 0, drift = "";
+
+  document.addEventListener("pointermove", (event) => {
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    cursorGlow.classList.add("on");
+  });
+  document.addEventListener("pointerleave", () => cursorGlow.classList.remove("on"));
+
+  (function frame() {
+    glowX += (pointerX - glowX) * 0.15;
+    glowY += (pointerY - glowY) * 0.15;
+    cursorGlow.style.transform =
+      `translate(${glowX.toFixed(1)}px, ${glowY.toFixed(1)}px) translate(-50%,-50%)`;
+
+    driftX += ((pointerX / window.innerWidth - 0.5) * 10 - driftX) * 0.05;
+    driftY += ((pointerY / window.innerHeight - 0.5) * 10 - driftY) * 0.05;
+    const at = `${driftX.toFixed(2)}px ${driftY.toFixed(2)}px`;
+    if (at !== drift) { drift = at; ground.style.backgroundPosition = at; }
+
+    requestAnimationFrame(frame);
+  })();
+}
 </script>
 </body>
 </html>

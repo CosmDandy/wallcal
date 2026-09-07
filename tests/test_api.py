@@ -41,6 +41,21 @@ def test_index_serves_the_builder_with_every_device(client: TestClient):
         assert f'data-key="{knob}"' in body
 
 
+def test_the_builder_brings_its_own_calendar(client: TestClient):
+    """The native picker is the browser's, in the browser's colours.
+
+    It stays for the value and the parsing, hidden; what opens is the page's own
+    calendar. If the input ever loses `hidden`, both would show at once.
+    """
+    body = client.get("/").text
+
+    for key in ("from", "to"):
+        assert f'id="{key}-btn"' in body
+        assert f'<input type="date" id="{key}" hidden>' in body
+    assert "cal-day" in body   # the grid the page draws itself
+    assert "cal-year" in body  # and the year picker behind the title
+
+
 def test_builder_defaults_match_the_api_defaults():
     """A knob whose page default differs from the server's silently does nothing.
 
