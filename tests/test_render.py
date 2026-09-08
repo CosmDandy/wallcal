@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 from datetime import date
@@ -14,8 +15,10 @@ from wallcal.devices import Device
 from wallcal.grid import CellState, build_span
 from wallcal.palette import lerp, luminance
 from wallcal.render import (
+    BarMode,
     FooterMode,
     HeaderMode,
+    Production,
     Shape,
     ShapeError,
     Style,
@@ -63,9 +66,10 @@ def test_clock_area_is_left_untouched(device: Device, clock: str):
 
 
 def test_no_dots_below_the_grid_band(device: Device):
-    style = Style(footer=FooterMode.NONE, bar=False)
+    style = Style(footer=FooterMode.NONE, bar=BarMode.NONE)
     image = render_span(grid_of(), device.width, device.height, style)
-    bottom = image.crop((0, round(L.SAFE_BOTTOM * device.height) + 1, device.width, device.height))
+    floor = L.grid_floor(device.height)
+    bottom = image.crop((0, floor + 1, device.width, device.height))
     assert bottom.getcolors(maxcolors=4) == [(bottom.width * bottom.height, style.background)]
 
 
@@ -349,13 +353,13 @@ def test_the_bar_fills_with_the_span(device: Device):
         grid_of(date(2026, 9, 1), date(2027, 8, 31)),
         device.width,
         device.height,
-        Style(bar=True),
+        Style(bar=BarMode.SPAN),
     )
     late = render_span(
         grid_of(date(2025, 9, 1), date(2026, 9, 30)),
         device.width,
         device.height,
-        Style(bar=True),
+        Style(bar=BarMode.SPAN),
     )
 
     def filled_width(image: Image.Image) -> int:
@@ -513,3 +517,153 @@ def test_counting_puts_a_number_over_the_end_of_each_week(device: Device):
 
     assert ink_above(6) > 0 and ink_above(13) > 0  # ends of both weeks
     assert ink_above(0) == 0 and ink_above(3) == 0  # nothing over the other days
+
+
+# The production calendar: the band stops being two fixed columns and becomes the
+# union of whatever days are not worked.
+
+# Captured from the drawing before the band learned about production calendars.
+# The union has to reduce to exactly those shapes when nothing moves the days
+# off, and a hash is the only assertion that can say "exactly".
+# Digests of the band as the column-drawing code left it, carried across the
+# rewrite that turned it into a union of cells. They were checked against the
+# commit before the rewrite: all thirty are byte-identical, which is the whole
+# claim — with no production calendar the new code draws the old picture.
+BAND_GOLDEN = {
+    (0, True, 1): "5dc3b99f78413e8a",
+    (0, True, 2): "6850c38526da92f0",
+    (0, True, 4): "7908bbdb8dc1615d",
+    (0, False, 1): "5dc3b99f78413e8a",
+    (0, False, 2): "3e27864adb44f7cc",
+    (0, False, 4): "e3a877b5447f1e8b",
+    (1, True, 1): "e9d7664812dbada5",
+    (1, True, 2): "9818b36a74850c53",
+    (1, True, 4): "5de4e7c3cf7b090f",
+    (1, False, 1): "e9d7664812dbada5",
+    (1, False, 2): "2fb8538210abc3cb",
+    (1, False, 4): "2578607015defd52",
+    (2, True, 1): "d7100c2362384fa3",
+    (2, True, 2): "79996776858c888f",
+    (2, True, 4): "773e88aff29afb2c",
+    (2, False, 1): "d7100c2362384fa3",
+    (2, False, 2): "c08ba1eaecba6019",
+    (2, False, 4): "c6fcdade1d1add63",
+    (3, True, 1): "0137c876caf62b81",
+    (3, True, 2): "44049cb65cd49174",
+    (3, True, 4): "04ffd96ae1d98e7d",
+    (3, False, 1): "0137c876caf62b81",
+    (3, False, 2): "acf46c43a1b59983",
+    (3, False, 4): "dd84dc2cc1a45489",
+    (4, True, 1): "97dd01cee35f7606",
+    (4, True, 2): "a86d1bfd9d011a89",
+    (4, True, 4): "ef21ff63e01ad27b",
+    (4, False, 1): "97dd01cee35f7606",
+    (4, False, 2): "c399e72f99e98513",
+    (4, False, 4): "b91beb4b78fd71dd",
+}
+
+
+@pytest.mark.parametrize(("first_weekday", "split", "groups"), sorted(BAND_GOLDEN))
+def test_no_production_calendar_draws_exactly_what_it_always_did(
+    first_weekday: int, split: bool, groups: int
+):
+    grid = build_span(
+        SPAN_START, SPAN_END, TODAY, weeks_per_row=groups, first_weekday=first_weekday
+    )
+    style = Style(first_weekday=first_weekday, split=split)
+    payload = to_png(render_span(grid, 590, 1278, style))
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    assert digest == BAND_GOLDEN[first_weekday, split, groups]
+
+
+def ru_span(start: date, end: date, today: date):
+    """A span drawn against the Russian calendar, with the geometry to probe it."""
+    grid = build_span(start, end, today)
+    style = Style(production=Production.RU, marks=False, weekends=True)
+    lay = L.compute(1179, 2556, grid.rows, grid.columns, grid.columns // 7)
+    return grid, lay, style, render_span(grid, 1179, 2556, style)
+
+
+# June 2025: Thursday the 12th is Russia Day and Friday the 13th was moved there
+# from March, so Thursday through Sunday is one run of days nobody works.
+JUNE = (date(2025, 6, 1), date(2025, 6, 30), date(2025, 6, 15))
+JUNE_ROW = 1  # 9-22 June, the row that holds the run
+
+
+def test_a_non_working_friday_joins_the_weekend_band():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    # Right on the seam between Friday and Saturday, along the band's top edge:
+    # two rounded rectangles would have pinched the colour away here.
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 4)[2], top)) == style.ramp.weekend
+
+
+def test_two_adjacent_non_working_weekdays_merge():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 3)[2], top)) == style.ramp.weekend
+
+
+def test_the_outer_corners_of_a_merged_band_stay_rounded():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    # Thursday's top-left is where the shape actually begins, so it rounds.
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 3)[0], top)) == style.background
+
+
+def test_a_wider_run_does_not_scallop_the_row_above_it():
+    """The weekend pill runs on through June's longer run instead of pinching at it."""
+    _, lay, style, image = ru_span(*JUNE)
+    seam = lay.cell_box(JUNE_ROW, 0)[1]
+    left = lay.cell_box(JUNE_ROW, 5)[0]  # Saturday's left edge, shared by both rows
+
+    assert image.getpixel((left, seam - 1)) == style.ramp.weekend
+    assert image.getpixel((left, seam)) == style.ramp.weekend
+
+
+# November 2025: the day off for Saturday the 1st was moved to Monday the 3rd,
+# so the Saturday is worked and Sunday-Monday-Tuesday is a run of three.
+NOVEMBER = (date(2025, 11, 1), date(2025, 11, 30), date(2025, 11, 10))
+
+
+def above_dot(image: Image.Image, lay: L.Layout, row: int, col: int):
+    """Between the dot and the top of its cell - where only a band can show."""
+    cx, cy = lay.cell_center(row, col)
+    return image.getpixel((round(cx), round(cy - lay.dot / 2) - 2))
+
+
+def test_a_working_saturday_loses_its_band():
+    grid, lay, style, image = ru_span(*NOVEMBER)
+    saturday = next(c for c in grid.cells if c.day == date(2025, 11, 1))
+
+    assert above_dot(image, lay, saturday.row, saturday.col) == style.background
+    plain = render_span(grid, 1179, 2556, Style(marks=False))
+    assert above_dot(plain, lay, saturday.row, saturday.col) == style.ramp.weekend
+
+
+def test_a_transferred_monday_and_tuesday_are_one_band():
+    grid, lay, style, image = ru_span(*NOVEMBER)
+    monday = next(c for c in grid.cells if c.day == date(2025, 11, 3))
+    top = lay.cell_box(monday.row, 0)[1]
+
+    assert above_dot(image, lay, monday.row, monday.col) == style.ramp.weekend
+    assert image.getpixel((lay.cell_box(monday.row, monday.col)[2], top)) == style.ramp.weekend
+
+
+def test_the_band_stops_at_the_gap_between_the_weeks():
+    """Sunday and Monday are both days off here, and the gap still separates them.
+
+    The gap is what makes a row read as two weeks rather than fourteen days; a
+    band reaching over it would be the only mark in the drawing that denies that.
+    """
+    _, lay, style, image = ru_span(*NOVEMBER)
+    sunday_row, sunday_col = 0, 6  # 2 November, the last day of the row's first week
+    _, top, right, bottom = lay.cell_box(sunday_row, sunday_col)
+    middle = (top + bottom) // 2
+
+    assert lay.group_gap > 2, "no gap to test"
+    for x in range(right + 1, lay.cell_box(sunday_row, sunday_col + 1)[0]):
+        assert image.getpixel((x, middle)) == style.background

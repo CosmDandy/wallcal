@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from wallcal.app import app, wallpaper
-from wallcal.devices import DEVICES
+from wallcal.devices import DEFAULT_DEVICE, DEVICES, MAX_SIDE, MIN_SIDE
 
 SPAN = "f=2026-09-01&t=2026-11-30"
 
@@ -26,19 +26,32 @@ def test_health(client: TestClient):
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
-def test_index_serves_the_builder_with_every_device(client: TestClient):
+def test_index_serves_the_builder(client: TestClient):
     response = client.get("/")
     body = response.text
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    for key in DEVICES:
-        assert f'"{key}"' in body, f"{key} missing from the device selector"
     for mode in ("span", "year", "quarter", "month"):
         assert f'data-mode="{mode}"' in body
     # Every query parameter the API takes should be reachable from the page.
-    for knob in ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "mk", "th", "ft", "br", "pv"):
+    knobs = ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "pc", "mk", "th", "ft", "br", "pv")
+    for knob in knobs:
         assert f'data-key="{knob}"' in body
+
+
+def test_the_builder_takes_a_screen_in_pixels(client: TestClient):
+    """Three presets covered three phones; the API has always taken w and h.
+
+    The page starts on the API's own default, so a builder left alone produces a
+    link with no size in it at all.
+    """
+    body = client.get("/").text
+    default = DEVICES[DEFAULT_DEVICE]
+
+    assert 'id="pw"' in body and 'id="ph"' in body
+    assert f"{{ w: {default.width}, h: {default.height} }}" in body
+    assert f'min="{MIN_SIDE}" max="{MAX_SIDE}"' in body
 
 
 def test_the_builder_brings_its_own_calendar(client: TestClient):
@@ -52,7 +65,7 @@ def test_the_builder_brings_its_own_calendar(client: TestClient):
     for key in ("from", "to"):
         assert f'id="{key}-btn"' in body
         assert f'<input type="date" id="{key}" hidden>' in body
-    assert "cal-day" in body   # the grid the page draws itself
+    assert "cal-day" in body  # the grid the page draws itself
     assert "cal-pick" in body  # and the months and years behind the title
 
 
@@ -151,6 +164,8 @@ def test_named_and_hex_colors_both_work(client: TestClient):
         "f=2026-09-01&t=2026-11-30&ink=neon",
         "f=2026-09-01&t=2026-11-30&lang=de",
         "f=2026-09-01&t=2026-11-30&hdr=roman",
+        "f=2026-09-01&t=2026-11-30&pc=de",
+        "f=2026-09-01&t=2026-11-30&pc=1",
         "f=yesterday&t=2026-11-30",
         "f=2026-09-01&t=90x",
     ],
@@ -383,6 +398,22 @@ def test_backdrops_can_be_switched_off(client: TestClient, query: str):
     full = client.get(f"/w/span.png?{SPAN}")
     assert plain.status_code == 200
     assert plain.content != full.content
+
+
+def test_the_russian_production_calendar_redraws_the_band(client: TestClient):
+    """A span holding 12 June and the Friday moved next to it, so the band has to change."""
+    span = "f=2025-06-01&t=2025-06-30"
+    plain = client.get(f"/w/span.png?{span}")
+    russian = client.get(f"/w/span.png?{span}&pc=ru")
+
+    assert russian.status_code == 200
+    assert russian.content != plain.content
+    assert russian.headers["etag"] != plain.headers["etag"]
+
+
+def test_the_production_calendar_is_off_by_default(client: TestClient):
+    explicit = client.get(f"/w/span.png?{SPAN}&pc=0")
+    assert explicit.content == client.get(f"/w/span.png?{SPAN}").content
 
 
 def test_preview_draws_the_lock_screen_over_the_wallpaper(client: TestClient):

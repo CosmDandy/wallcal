@@ -17,15 +17,22 @@ from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
 from . import layout as layout_mod
-from . import quotes
+from . import quotes, workdays
 from .fonts import FONT_LIGHT, FONT_REGULAR, load_font
-from .grid import DAYS_PER_WEEK, CellState, Grid
+from .grid import DAYS_PER_WEEK, CellState, Grid, month_end
+from .markers import Marker
 from .palette import RGB, Ramp, lerp, mix, ramp_for
 from .strings import days_left, month, week_of, weekday
 
 SUPERSAMPLE = 8
 
-WEEKEND_INSET = 0.0  # the band ends halfway between two dots, on the cell edge
+# A marker is the reader's own note on a day, not a fact about the calendar, so
+# it carries less weight than the month-end mark: a halo hugging the dot instead
+# of the whole cell filled, and the colour mixed in short of the ramp's own tint.
+# Filling the cell at full tint made a weekly rule read as a second grid.
+MARKER_INSET = 0.5  # of the clear space between the dot and the cell edge
+MARKER_TINT = 0.7  # of the ramp's tint
+BAND_RADIUS = 0.35  # corner radius of the non-working band, as a fraction of pitch_x
 FADE_FLOOR = 0.0  # 0 lands on the ramp's faint end, 1 on its strong end
 FADE_STEPS = 40  # quantised so the sprite tiles stay cacheable
 # Below 1 the curve is steep far from today and shallow near it: recent days sit
@@ -85,6 +92,73 @@ def parse_footer(spec: str) -> FooterMode:
         raise FooterError(f"unknown footer mode {spec!r}; use one of: {known}") from exc
 
 
+class BarMode(Enum):
+    """Which period the rule under the footer fills with.
+
+    The dot field is already a picture of the span, so a rule that also measures
+    the span states one number twice. It earns its place when it measures
+    something the dots do not: `mode=month&br=year` says where the month sits in
+    the year, which nothing else on the screen says.
+    """
+
+    SPAN = "span"  # the drawn span, which is what br=1 has always meant
+    YEAR = "year"
+    QUARTER = "quarter"
+    MONTH = "month"
+    NONE = "none"
+
+
+class BarError(ValueError):
+    """Raised for an unknown bar period."""
+
+
+def parse_bar(spec: str) -> BarMode:
+    key = spec.strip().lower()
+    # `br` was declared a bool, so FastAPI has been accepting every spelling
+    # pydantic calls one. Parsing moved in here, and dropping any of them would
+    # turn a link that answers 200 today into a 400.
+    aliases = {
+        "1": BarMode.SPAN,
+        "true": BarMode.SPAN,
+        "yes": BarMode.SPAN,
+        "on": BarMode.SPAN,
+        "t": BarMode.SPAN,
+        "y": BarMode.SPAN,
+        "0": BarMode.NONE,
+        "false": BarMode.NONE,
+        "no": BarMode.NONE,
+        "off": BarMode.NONE,
+        "f": BarMode.NONE,
+        "n": BarMode.NONE,
+    }
+    if key in aliases:
+        return aliases[key]
+    try:
+        return BarMode(key)
+    except ValueError as exc:
+        known = ", ".join(m.value for m in BarMode)
+        raise BarError(f"unknown bar period {spec!r}; use one of: {known}") from exc
+
+
+class Production(Enum):
+    """Whose working year decides which days get the band."""
+
+    OFF = "0"  # Saturday and Sunday, and nothing else
+    RU = "ru"  # Russian holidays and the government's transfers
+
+
+class ProductionError(ValueError):
+    """Raised for an unknown production calendar."""
+
+
+def parse_production(spec: str) -> Production:
+    try:
+        return Production(spec.strip().lower())
+    except ValueError as exc:
+        known = ", ".join(p.value for p in Production)
+        raise ProductionError(f"unknown production calendar {spec!r}; use one of: {known}") from exc
+
+
 class Shape(Enum):
     CIRCLE = "c"
     SQUARE = "r"  # rounded square, GitHub contribution style
@@ -120,12 +194,14 @@ class Style:
     axes: bool = True
     labels: layout_mod.LabelSide = layout_mod.LabelSide.LEFT
     footer: FooterMode = FooterMode.PERCENT
-    bar: bool = True  # a progress rule under the footer line
+    bar: BarMode = BarMode.SPAN  # which period the rule under the footer fills
     fade: bool = True  # older past days drawn fainter than recent ones
     split: bool = True  # a gap between the weeks inside a row
-    weekends: bool = True  # a faint band behind Saturday and Sunday
+    weekends: bool = True  # a faint band behind the days that are not worked
+    production: Production = Production.OFF  # whose calendar says which days those are
     marks: bool = True  # a tinted cell on the last day of each month
     month_mark: RGB = (0xCB, 0x4B, 0x16)  # solarized orange
+    markers: tuple[Marker, ...] = ()  # the reader's own rules, drawn over the marks
     quote: bool = False  # rotate a line of the day under the grid
     quote_text: str = ""  # replaces the rotation when set
     quote_author: str = ""
@@ -182,12 +258,14 @@ def render_span(grid: Grid, width: int, height: int, style: Style) -> Image.Imag
         split=style.split,
         labels=style.labels,
         quote=style.shows_quote,
+        footer=style.footer is not FooterMode.NONE,
         clock=style.clock,
         shift=style.shift,
     )
     image = Image.new("RGB", (width, height), style.background)
 
     _draw_backdrops(image, lay, grid, style)
+    _draw_markers(image, lay, grid, style)
 
     mask = _dot_mask(lay.dot, style.shape, lay.corner)
     ramp = style.ramp
@@ -223,7 +301,7 @@ def render_span(grid: Grid, width: int, height: int, style: Style) -> Image.Imag
         _draw_quote(image, lay, style, chosen)
     if style.footer is not FooterMode.NONE:
         _draw_footer(image, lay, style, (_footer_line(grid, style.footer, style.language),))
-    if style.bar:
+    if style.bar is not BarMode.NONE:
         _draw_bar(image, lay, grid, style)
 
     return image
@@ -242,43 +320,152 @@ def _fade_step(day: date, grid: Grid) -> int:
 
 
 def _draw_backdrops(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Style) -> None:
-    """Tints laid under the dots: weekend columns, then single marked days."""
+    """Tints laid under the dots: the non-working band, then single marked days.
+
+    Order is the z-order: the band is the ground everything else sits on.
+    """
     draw = ImageDraw.Draw(image)
 
     ramp = style.ramp
+    radius = round(lay.pitch_x * BAND_RADIUS)
     if style.weekends:
-        tint = ramp.weekend
-        # Pulled in off the cell edges so it reads as a light outline around the
-        # weekend, not as a second grid drawn behind the first.
-        inset_x = round((lay.pitch_x - lay.dot) * WEEKEND_INSET)
-        inset_y = round((lay.pitch_y - lay.dot) * WEEKEND_INSET)
-        radius = round(lay.pitch_x * 0.35)
-        top = lay.cell_box(0, 0)[1] + inset_y
-        bottom = lay.cell_box(lay.rows - 1, 0)[3] - inset_y
-        # Which columns the weekend lands in depends on what starts the week:
-        # with wd=6 Saturday is the last column and Sunday the first, so the two
-        # are not adjacent and get a band each. When they are adjacent they get
-        # one band between them — Saturday and Sunday read as a single block,
-        # which is what they are.
-        saturday = (5 - style.first_weekday) % DAYS_PER_WEEK
-        sunday = (6 - style.first_weekday) % DAYS_PER_WEEK
-        if sunday == saturday + 1:
-            runs = [(saturday, sunday)]
-        else:
-            runs = [(saturday, saturday), (sunday, sunday)]
-        for week in range(lay.groups):
-            for first, last in runs:
-                left = lay.cell_box(0, week * DAYS_PER_WEEK + first)[0] + inset_x
-                right = lay.cell_box(0, week * DAYS_PER_WEEK + last)[2] - inset_x
-                draw.rounded_rectangle((left, top, right, bottom), radius=radius, fill=tint)
+        _draw_non_working(draw, lay, grid, style, radius, ramp.weekend)
 
     if style.marks:
         month_tint = lerp(style.background, style.month_mark, ramp.tint)
-        radius = round(lay.pitch_x * 0.35)
         for cell in grid.cells:
             if cell.state is CellState.OUTSIDE or not cell.is_month_end:
                 continue
             draw.rounded_rectangle(lay.cell_box(cell.row, cell.col), radius=radius, fill=month_tint)
+
+
+def _draw_markers(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Style) -> None:
+    """The reader's own rules, tinted on top of the backdrops.
+
+    The month-end mark's recipe, held back — see MARKER_INSET and MARKER_TINT.
+    The background is lifted towards the colour, but less far, and the shape is
+    pulled in off the cell edges, so a marker reads as another day worth
+    noticing rather than as a second kind of drawing laid over the field.
+
+    Where two markers cover the same day, the last one in the URL wins: the
+    order they are written in is the only thing a reader can see, so it is what
+    decides. Write the broad rule first and the exception after it.
+    """
+    if not style.markers:
+        return
+    draw = ImageDraw.Draw(image)
+    inset_x = round((lay.pitch_x - lay.dot) / 2 * MARKER_INSET)
+    inset_y = round((lay.pitch_y - lay.dot) / 2 * MARKER_INSET)
+    # The radius follows the shrunken box, or a halo this thin would round away
+    # into a lozenge.
+    radius = round((lay.pitch_x - 2 * inset_x) * 0.35)
+    # style.ramp rebuilds the whole ramp on every read, and the tints are the
+    # same for every cell: mixed once, here.
+    amount = style.ramp.tint * MARKER_TINT
+
+    # Each rule is expanded over the span once. A pulled-back rule has to look
+    # at the days around the one it names, so asking it cell by cell would walk
+    # the same stretch of calendar again for every day drawn.
+    def off(day: date) -> bool:
+        return _is_non_working(day, style)
+
+    claimed: dict[date, RGB] = {}
+    for marker in style.markers:
+        tint = lerp(style.background, marker.color, amount)
+        for day in marker.days_in(grid.start, grid.end, off):
+            claimed[day] = tint  # later rules paint over earlier ones
+
+    for cell in grid.cells:
+        if cell.state is CellState.OUTSIDE:
+            continue
+        fill = claimed.get(cell.day)
+        if fill is None:
+            continue
+        left, top, right, bottom = lay.cell_box(cell.row, cell.col)
+        draw.rounded_rectangle(
+            (left + inset_x, top + inset_y, right - inset_x, bottom - inset_y),
+            radius=radius,
+            fill=fill,
+        )
+
+
+def _is_non_working(day: date, style: Style) -> bool:
+    return (
+        workdays.is_non_working(day)
+        if style.production is Production.RU
+        else day.weekday() >= workdays.SATURDAY
+    )
+
+
+def _row_runs(grid: Grid, style: Style, row: int) -> tuple[tuple[int, int], ...]:
+    """The row's non-working days as maximal column runs, `(first_col, last_col)`.
+
+    A run stops at the boundary between two weeks even when nothing separates
+    them on screen: the row is two whole weeks set side by side, and a band
+    reaching across would be the one mark in the drawing that denies it.
+    """
+    runs: list[tuple[int, int]] = []
+    for cell in grid.cells[row * grid.columns : (row + 1) * grid.columns]:
+        if not _is_non_working(cell.day, style):
+            continue
+        joins = bool(runs) and runs[-1][1] == cell.col - 1 and cell.col % DAYS_PER_WEEK != 0
+        if joins:
+            runs[-1] = (runs[-1][0], cell.col)
+        else:
+            runs.append((cell.col, cell.col))
+    return tuple(runs)
+
+
+def _draw_non_working(  # noqa: PLR0913 - a drawing primitive, given its geometry and its colour
+    draw: ImageDraw.ImageDraw,
+    lay: layout_mod.Layout,
+    grid: Grid,
+    style: Style,
+    radius: int,
+    tint: RGB,
+) -> None:
+    """The band under days that are not worked, as few shapes as the days allow.
+
+    Which days those are varies by date once a production calendar is on, so the
+    band cannot be drawn as columns. It is the union of the cells instead, merged
+    across a row and then down the rows: a Friday that is not worked has to read
+    as one shape with the weekend, and a plain weekend has to stay the single
+    full-height pill it has always been.
+
+    Rounded rectangles are the wrong primitive to stamp per cell — abutting ones
+    pinch at the seam — so the union is decomposed into blocks that already share
+    an edge, and the seams between blocks are patched square afterwards.
+    """
+    blocks: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
+    for row in range(grid.rows):
+        runs = _row_runs(grid, style, row)
+        if blocks and blocks[-1][2] == runs:
+            blocks[-1] = (blocks[-1][0], row, runs)
+        else:
+            blocks.append((row, row, runs))
+
+    for first_row, last_row, runs in blocks:
+        top = lay.cell_box(first_row, 0)[1]
+        bottom = lay.cell_box(last_row, 0)[3]
+        for first_col, last_col in runs:
+            left = lay.cell_box(first_row, first_col)[0]
+            right = lay.cell_box(first_row, last_col)[2]
+            draw.rounded_rectangle((left, top, right, bottom), radius=radius, fill=tint)
+
+    # Where one block sits on another, their two rounded edges leave a scallop
+    # between them. A square patch over the columns they share turns it back into
+    # the straight run of colour it is, and leaves the corners that really are
+    # corners rounded. The radius is under one row tall, so it cannot spill past
+    # either block.
+    for upper, lower in zip(blocks, blocks[1:], strict=False):
+        seam = lay.cell_box(lower[0], 0)[1]
+        for above, below in ((a, b) for a in upper[2] for b in lower[2]):
+            first_col, last_col = max(above[0], below[0]), min(above[1], below[1])
+            if first_col > last_col:
+                continue
+            left = lay.cell_box(lower[0], first_col)[0]
+            right = lay.cell_box(lower[0], last_col)[2]
+            draw.rectangle((left, seam - radius, right, seam + radius - 1), fill=tint)
 
 
 def _draw_axes(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Style) -> None:
@@ -418,8 +605,29 @@ def _footer_line(grid: Grid, mode: FooterMode, language: str) -> str:
     return f"{grid.days_elapsed} / {grid.days_total}  ·  {grid.progress * 100:.1f}%"
 
 
+def _bar_progress(mode: BarMode, grid: Grid) -> float:
+    """How full the rule stands: the share of its period already spent.
+
+    A calendar period is measured against today rather than against the span, so
+    the rule keeps meaning something on a link whose span has run out.
+    """
+    if mode is BarMode.SPAN:
+        return grid.progress
+    day = grid.today
+    if mode is BarMode.YEAR:
+        first, last = date(day.year, 1, 1), date(day.year, 12, 31)
+    elif mode is BarMode.QUARTER:
+        opening = 3 * ((day.month - 1) // 3) + 1
+        first = date(day.year, opening, 1)
+        last = month_end(date(day.year, opening + 2, 1))
+    else:
+        first, last = day.replace(day=1), month_end(day)
+    # Today counts as spent, the way the span's own progress counts it.
+    return ((day - first).days + 1) / ((last - first).days + 1)
+
+
 def _draw_bar(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Style) -> None:
-    """A rule the width of the lane, filled to the share of the span already spent."""
+    """A rule the width of the lane, filled to the share of its period spent."""
     draw = ImageDraw.Draw(image)
     width = round(lay.footer_max_width * 0.62)
     height = max(4, round(lay.footer_font * 0.26))
@@ -432,7 +640,7 @@ def _draw_bar(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Sty
         radius=radius,
         fill=style.ramp.future,
     )
-    filled = round(width * grid.progress)
+    filled = round(width * _bar_progress(style.bar, grid))
     if filled >= height:
         draw.rounded_rectangle(
             (left, top, left + filled, top + height), radius=radius, fill=style.accent

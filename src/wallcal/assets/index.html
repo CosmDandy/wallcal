@@ -295,7 +295,11 @@
     background:radial-gradient(ellipse at 50% 45%, var(--stage-glow) 0%, transparent 70%);
     filter:blur(46px);
   }
-  .phone { --s:.74; position:relative; width:calc(393px * var(--s)); height:calc(852px * var(--s)); }
+  .phone {
+    --s:.74; --ratio:2.168;  /* 852 / 393 — the shape of an iPhone 16 */
+    position:relative; width:calc(393px * var(--s));
+    height:calc(393px * var(--s) * var(--ratio));
+  }
   /* Three nested shells, the way thelifecalendar builds it: a rail lit at both
      ends, a dark band inside it, then the screen. The light-dark-light gradient
      is what reads as a metal edge catching light top and bottom. */
@@ -354,7 +358,10 @@
      hides the end of the very thing you are meant to read. */
   .dock { position:fixed; z-index:20; left:0; right:0; bottom:0; padding:0 24px 18px; pointer-events:none; }
   .dock-inner {
-    pointer-events:auto; display:flex; gap:16px; align-items:flex-end;
+    /* Centred, not bottom-aligned: the endpoint wraps to two and three lines as
+       the link grows, and anchoring the buttons to its last line made them walk
+       down the dock as you typed. */
+    pointer-events:auto; display:flex; gap:16px; align-items:center;
     max-width:1240px; margin:0 auto; padding:14px 16px;
     border:1px solid var(--edge); border-top-color:var(--edge-top);
     border-radius:var(--r-lg);
@@ -420,7 +427,9 @@
     border-radius:var(--r-xs); padding:3px 9px;
     transition:background var(--tap), border-color var(--tap), transform .28s var(--spring);
   }
+  .cal-title { display:inline-flex; align-items:center; gap:7px; }
   .cal-title:hover { border-color:var(--edge-hot); }
+  .cal-title .chev { opacity:.55; }
   .cal-title:active { transform:scale(.95); }
   .cal-pick {
     border:none; border-radius:var(--r-sm); background:transparent; color:var(--ink);
@@ -461,13 +470,20 @@
   /* ── Copy ─────────────────────────────────────────────────────────────────
      The tick is drawn, not shown: its stroke runs on when the text lands in the
      clipboard, which is the only confirmation a copy ever gets. */
-  #copy { display:inline-flex; align-items:center; gap:7px; }
+  #copy, #share { display:inline-flex; align-items:center; gap:7px; }
+  /* A button holding a tick lays itself out as a flex row, which is what keeps
+     the word centred while the tick is not there: inline children would leave
+     the whitespace between the svg and the span standing, and the label sat a
+     space off centre until the moment you pressed it. The gap opens with the
+     tick rather than being held for it. */
+  .action:has(.tick) { display:inline-flex; align-items:center; justify-content:center; }
   .tick {
-    width:0; opacity:0; overflow:visible;
-    transition:width .28s var(--ease), opacity .2s var(--ease);
+    width:0; opacity:0; overflow:visible; margin-right:0;
+    transition:width .28s var(--ease), opacity .2s var(--ease),
+               margin-right .28s var(--ease);
   }
   .tick path { stroke-dasharray:18; stroke-dashoffset:18; }
-  .action.copied .tick { width:15px; opacity:1; }
+  .action.copied .tick { width:15px; opacity:1; margin-right:6px; }
   .action.copied .tick path { animation:tickDraw .32s var(--ease) forwards; }
   @keyframes tickDraw { to { stroke-dashoffset:0; } }
 
@@ -487,12 +503,64 @@
   .panel:nth-of-type(7) { animation-delay:.34s; }
   .dock-inner { animation:dockUp .55s var(--ease) .3s both; }
 
-  /* A new wallpaper is a fresh HTTP request; without this the phone blinks from
-     one drawing to the next. */
-  .shot { transition:opacity .3s var(--ease); }
-  .shot.loading { opacity:.45; }
+  .size input[type=number] {
+    font:inherit; width:5.6em; color:var(--ink); background:var(--field);
+    border:1px solid var(--edge); border-radius:var(--r-sm); padding:6px 10px;
+    font-variant-numeric:tabular-nums; text-align:right;
+    transition:background var(--fade), color var(--fade), border-color var(--tap),
+               box-shadow var(--tap);
+  }
+  .size input:focus { border-color:var(--edge-hot); outline:none;
+                      box-shadow:0 0 0 3px var(--ring); }
+  .size input.bad { border-color:var(--orange); }
+  .size .times, .size .unit { font-size:13px; color:var(--ink-faint); }
+
+  /* ── Markers ─────────────────────────────────────────────────────────────
+     A marker is not a knob with a fixed label, so it is not a .row: the label
+     column has nothing to say about a control the reader named himself. It is a
+     card instead, and its left edge carries its colour — the list is read by
+     hue, which is exactly how the wallpaper is read. */
+  .marker {
+    padding:11px 13px; margin-bottom:10px;
+    border:1px solid var(--edge); border-left:3px solid var(--ink-faint);
+    border-radius:var(--r-sm); background:var(--field);
+    transition:opacity var(--tap), border-color var(--fade);
+  }
+  .marker:last-child { margin-bottom:0; }
+  /* A rule that matches nothing is not in the link, and says so by going quiet
+     rather than by an error: the next click puts it back. */
+  .marker.idle { opacity:.5; }
+  .marker-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .marker-head input[type=text] { flex:1 1 130px; min-width:110px; max-width:220px; }
+  .marker-drop { margin-left:auto; padding:6px 10px; line-height:1; }
+  .marker-body { display:flex; gap:8px 16px; align-items:center; flex-wrap:wrap; }
+  /* [hidden] is a UA rule; .seg sets display, and the more specific one wins. */
+  .marker [hidden] { display:none; }
+  .marker .seg button { padding:5px 9px; font-size:12px; }
+  .marker .swatches button { width:22px; height:22px; }
+  .marker-date { min-width:0; font-size:12px; padding:6px 10px; }
+  /* Full width: it is the panel's one invitation, and a marker is added far
+     more often than anything else here is pressed. The cap note sits under it
+     rather than beside it, so the button keeps the whole line. */
+  .marker-pull {
+    display:flex; gap:8px; align-items:center; margin-top:10px;
+    font-size:12px; color:var(--ink-faint); cursor:pointer;
+  }
+  .marker-pull input { margin:0; accent-color:var(--green); }
+  .rangefield { display:flex; gap:8px; align-items:center; }
+  .rangedash { color:var(--ink-faint); }
+  .marker-foot { display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-top:12px; }
+  .marker-foot .hint { margin:0; }
+  #marker-add { width:100%; padding:11px 15px; }
+  .action:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+  /* The dock floats at z-index 20; a calendar opened from a panel this far down
+     the page drops straight behind it unless the panel is lifted past it. */
+  .panel.above { z-index:25; }
+  .panel:nth-of-type(8) { animation-delay:.38s; }
 
   .hint { font-size:12px; color:var(--ink-faint); margin:12px 2px 0; }
+  .row + .hint { margin:2px 0 10px; }
+  @media (min-width:561px) { .row + .hint { margin-left:130px; } }
   code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace;
          background:var(--field); border:1px solid var(--edge);
          padding:1px 5px; border-radius:var(--r-xs); }
@@ -586,8 +654,16 @@
 
     <fieldset class="panel">
       <legend>Screen</legend>
-      <div class="row"><label>Device</label><span class="seg" data-key="d"></span></div>
-      <div class="row"><label>Clock</label><span class="seg" data-key="ck"></span></div>
+      <div class="row">
+        <label for="pw">Size</label>
+        <span class="inline size">
+          <input type="number" id="pw" min="320" max="4096" step="1" inputmode="numeric">
+          <span class="times">×</span>
+          <input type="number" id="ph" min="320" max="4096" step="1" inputmode="numeric">
+          <span class="unit">px</span>
+        </span>
+      </div>
+      <p class="hint" id="size-hint"></p>
       <div class="row">
         <label for="sh">Nudge</label>
         <span class="inline">
@@ -621,6 +697,7 @@
     <fieldset class="panel wide split">
       <legend>Highlights</legend>
       <div class="row"><label>Weekends</label><span class="seg" data-key="we"></span></div>
+      <div class="row"><label>Production calendar</label><span class="seg" data-key="pc"></span></div>
       <div class="row"><label>Month ends</label><span class="seg" data-key="mk"></span></div>
       <div class="row full"><label>Today</label><span class="swatches" data-key="a"></span></div>
       <div class="row full"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
@@ -653,6 +730,20 @@
       </div>
       <p class="hint" id="quote-preview"></p>
     </fieldset>
+
+    <fieldset class="panel wide">
+      <legend>Markers</legend>
+      <p class="hint" id="marker-empty">
+        Your own days — a weekly night out, the days a month turns on, one
+        deadline, a whole holiday — take a tinted cell. Press <b>+ Marker</b>,
+        name it, pick the days and a colour.
+      </p>
+      <div id="marker-list"></div>
+      <div class="marker-foot">
+        <button type="button" class="action small" id="marker-add">+ Marker</button>
+        <span class="hint" id="marker-cap"></span>
+      </div>
+    </fieldset>
   </form>
 </main>
 
@@ -669,6 +760,12 @@
              stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.4 6.4 12.3 13.5 4"/></svg>
         <span class="copy-label">Copy</span>
       </button>
+      <button class="action" id="share" title="Copy a link to this builder, settings and all">
+        <svg class="tick" width="15" height="15" viewBox="0 0 16 16" fill="none"
+             stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.4 6.4 12.3 13.5 4"/></svg>
+        <span class="copy-label">Share</span>
+      </button>
       <button class="action" id="open">Open</button>
     </div>
   </div>
@@ -676,9 +773,7 @@
 
 <script>
 const OPTIONS = {
-  d:  { def:"i16",  items:[["i16","16"],["i16p","16 Pro"],["i16pm","16 Pro Max"]] },
   pv: { def:"0", init:"1", items:[["1","On"],["0","Off"]] },
-  ck: { def:"std",  items:[["std","Standard"],["big","Large"]] },
   sh: { def:"0",    items:[] },  // a slider, not buttons — see the range input
   ink:{ def:"bright", items:[["bright","Bright"],["cream","Cream"]] },
   s:  { def:"c",    items:[["c","Circle"],["r","Rounded"]] },
@@ -693,14 +788,17 @@ const OPTIONS = {
   lang:{ def:"en",  items:[["en","English"],["ru","Русский"]] },
   wd: { def:"0",    items:[["0","Monday"],["6","Sunday"]] },
   we: { def:"1",    items:[["1","On"],["0","Off"]] },
+  pc: { def:"0",    items:[["0","Off"],["ru","Russia"]] },
   mk: { def:"1",    items:[["1","On"],["0","Off"]] },
   th: { def:"light", items:[
         ["light","Paper"],["dark","Ink"],["gray","Graphite"],
-        ["teal","Teal"],["ultramarine","Ultramarine"],["pink","Pink"],["sand","Sand"],
-        ["white","White"],["black","Black"]] },
+        ["white","White"],["black","Black"],
+        // The iPhone 16 finishes, in their published sRGB values.
+        ["teal","Teal"],["ultramarine","Ultramarine"],["pink","Pink"],["onyx","Onyx"],
+        ["sand","Desert"],["natural","Natural"]] },
   q:  { def:"0",    items:[["1","On"],["0","Off"]] },
   ft: { def:"pct",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
-  br: { def:"1",    items:[["1","On"],["0","Off"]] },
+  br: { def:"1",    items:[["1","Span"],["year","Year"],["quarter","Quarter"],["month","Month"],["0","Off"]] },
 };
 
 const SWATCHES = {
@@ -719,6 +817,23 @@ const HUES = [
 const state = {};
 for (const [key, spec] of Object.entries(OPTIONS)) state[key] = spec.init ?? spec.def;
 for (const [key, spec] of Object.entries(SWATCHES)) state[key] = spec.def;
+
+// There are more phones than a list of three, and a wallpaper drawn for the
+// wrong resolution is stretched by the phone that receives it. So the screen is
+// two numbers, and the server's own default is the one they start on: matching
+// it means w and h are left out of the link entirely.
+const SCREEN = { w: 1179, h: 2556 };        // iPhone 16, and the API's default
+const SCREEN_MIN = 320, SCREEN_MAX = 4096;  // devices.py: MIN_SIDE, MAX_SIDE
+const SCREEN_PIXELS = 4_200_000;            // devices.py: MAX_PIXELS
+const KNOWN_SCREENS = [
+  [1179, 2556, "iPhone 16 · 16 Plus is 1290×2796"],
+  [1206, 2622, "iPhone 16 Pro"],
+  [1320, 2868, "iPhone 16 Pro Max"],
+  [1290, 2796, "iPhone 14/15 Pro Max"],
+  [1170, 2532, "iPhone 12–15"],
+  [1125, 2436, "iPhone X / XS / 11 Pro"],
+  [1080, 2340, "many Android phones"],
+];
 
 const STORE_KEY = "wallcal.builder";
 const UI_KEY = "wallcal.ui-theme";
@@ -740,8 +855,10 @@ let rotation = { today: null, quotes: [] };
 const toInput = document.getElementById("to");
 const urlBox = document.getElementById("url");
 const shot = document.getElementById("shot");
-shot.addEventListener("load", () => shot.classList.remove("loading"));
-shot.addEventListener("error", () => shot.classList.remove("loading"));
+const screenW = document.getElementById("pw");
+const screenH = document.getElementById("ph");
+const sizeHint = document.getElementById("size-hint");
+const phone = document.querySelector(".phone");
 
 function iso(date) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -801,6 +918,40 @@ function dayLabel(value) {
     { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function screenSize() {
+  return { w: Number(screenW.value), h: Number(screenH.value) };
+}
+
+function screenFault({ w, h }) {
+  for (const [name, side] of [["Width", w], ["Height", h]]) {
+    if (!Number.isInteger(side) || side < SCREEN_MIN || side > SCREEN_MAX) {
+      return `${name} must be a whole number between ${SCREEN_MIN} and ${SCREEN_MAX}.`;
+    }
+  }
+  if (w * h > SCREEN_PIXELS) {
+    return `${w}×${h} is ${(w * h / 1e6).toFixed(1)} Mpx; the limit is ` +
+           `${(SCREEN_PIXELS / 1e6).toFixed(1)} Mpx.`;
+  }
+  return "";
+}
+
+function paintScreen() {
+  const size = screenSize();
+  const fault = screenFault(size);
+  screenW.classList.toggle("bad", Boolean(fault));
+  screenH.classList.toggle("bad", Boolean(fault));
+  if (fault) {
+    sizeHint.textContent = fault;
+    return false;
+  }
+  // The shell takes the shape of the screen it is showing, so an unusual phone
+  // looks unusual here too rather than being quietly letterboxed.
+  phone.style.setProperty("--ratio", (size.h / size.w).toFixed(4));
+  const known = KNOWN_SCREENS.find(([w, h]) => w === size.w && h === size.h);
+  sizeHint.textContent = known ? known[2] : "Native pixels, not points.";
+  return true;
+}
+
 function paintDates() {
   for (const key of ["from", "to"]) {
     document.getElementById(`${key}-label`).textContent =
@@ -812,10 +963,16 @@ function paintDates() {
 // from now in one or two steps, which stepping month by month never does.
 const YEAR_PAGE = 12;
 
-function head(title, back, forward) {
+const CHEVRON = `<svg class="chev" width="9" height="9" viewBox="0 0 12 12" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+  aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>`;
+
+function head(title, back, forward, climbs = true) {
   return `<div class="cal-head">
       <button type="button" class="cal-step" data-step="-1" aria-label="${back}">‹</button>
-      <button type="button" class="cal-title" data-view>${title}</button>
+      <button type="button" class="cal-title" data-view>
+        <span>${title}</span>${climbs ? CHEVRON : ""}
+      </button>
       <button type="button" class="cal-step" data-step="1" aria-label="${forward}">›</button>
     </div>`;
 }
@@ -837,7 +994,7 @@ function paintYears() {
                       data-year="${year}">${year}</button>`;
   }
   calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1}`,
-                            "Earlier years", "Later years") +
+                            "Earlier years", "Later years", false) +
     `<div class="cal-picks">${cells}</div>` +
     foot('<button type="button" class="action small" data-down>Back to months</button>');
 }
@@ -851,7 +1008,7 @@ function paintMonths() {
     cells += `<button type="button" class="cal-pick${on ? " on" : ""}"
                       data-month="${index}">${name.slice(0, 3)}</button>`;
   });
-  calendar.innerHTML = head(`${year} ⌄`, "Previous year", "Next year") +
+  calendar.innerHTML = head(`${year}`, "Previous year", "Next year") +
     `<div class="cal-picks">${cells}</div>` +
     foot('<button type="button" class="action small" data-down>Back to days</button>');
 }
@@ -880,7 +1037,7 @@ function paintDays() {
   }
 
   calendar.innerHTML =
-    head(`${MONTH_NAMES[calMonth.getMonth()]} ${calMonth.getFullYear()} ⌄`,
+    head(`${MONTH_NAMES[calMonth.getMonth()]} ${calMonth.getFullYear()}`,
          "Previous month", "Next month") +
     `<div class="cal-grid">${names}${cells}</div>` +
     foot(`<button type="button" class="action small" data-date="${today}">Today</button>`);
@@ -1014,6 +1171,8 @@ function paintModes() {
 function paintSelection() {
   paintModes();
   paintDates();
+  paintScreen();
+  paintMarkers();
   nudge.value = state.sh;
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
   document.querySelectorAll("[data-key]").forEach((host) => {
@@ -1030,9 +1189,17 @@ const PREVIEW_ONLY = new Set(["pv"]);
 
 function query({ forPreview = false } = {}) {
   const parts = mode === "span" ? [`f=${fromInput.value}`, `t=${toInput.value}`] : [];
+  const size = screenSize();
+  if (!screenFault(size) && (size.w !== SCREEN.w || size.h !== SCREEN.h)) {
+    parts.push(`w=${size.w}`, `h=${size.h}`);
+  }
   for (const [key, spec] of Object.entries({ ...OPTIONS, ...SWATCHES })) {
     if (PREVIEW_ONLY.has(key)) continue;
     if (state[key] !== spec.def) parts.push(`${key}=${state[key]}`);
+  }
+  for (const marker of markers) {
+    const spec = markerSpec(marker, { named: !forPreview });
+    if (spec) parts.push(`m=${spec}`);
   }
   if (quoteText.value.trim()) {
     parts.push(`qt=${encodeURIComponent(quoteText.value.trim())}`);
@@ -1048,7 +1215,8 @@ function query({ forPreview = false } = {}) {
 // `mode` lives in the builder's own address so a shared builder link restores it.
 function save() {
   const snapshot = { ...state, mode, f: fromInput.value, t: toInput.value,
-                     qt: quoteText.value, qa: quoteAuthor.value };
+                     w: screenW.value, h: screenH.value,
+                     qt: quoteText.value, qa: quoteAuthor.value, m: markers };
   try { localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); } catch {}
   // Also mirrored into this page's own address, so a reload or a shared builder
   // link restores the same settings even in a fresh browser.
@@ -1066,8 +1234,17 @@ function restore() {
     const value = pick(key);
     if (value !== undefined && value !== null) state[key] = value;
   }
+  // Markers are the one repeatable parameter, so they miss `pick` entirely: the
+  // link carries a list of specs, the store keeps the objects as they stand.
+  const specs = fromUrl.getAll("m");
+  if (specs.length) markers = specs.map(parseMarkerSpec).filter(Boolean);
+  else if (Array.isArray(saved.m)) markers = saved.m.map(reviveMarker);
+  markers = markers.slice(0, MARKER_CAP);
+
   if (pick("f")) fromInput.value = pick("f");
   if (pick("t")) toInput.value = pick("t");
+  screenW.value = pick("w") || SCREEN.w;
+  screenH.value = pick("h") || SCREEN.h;
   quoteText.value = pick("qt") || "";
   quoteAuthor.value = pick("qa") || "";
   if (pick("mode")) mode = pick("mode");
@@ -1082,10 +1259,11 @@ function render() {
   save();
   const preview = `${location.origin}/w/${mode}.png?${query({ forPreview: true })}`;
   clearTimeout(timer);
+  if (screenFault(screenSize())) return;   // half-typed numbers are not a screen
+  // The wallpaper itself does not animate: a knob you turn should land at once,
+  // and a cross-fade between two drawings reads as the picture being unsure.
   timer = setTimeout(() => {
-    if (shot.src === preview) return;
-    shot.classList.add("loading");
-    shot.src = preview;
+    if (shot.src !== preview) shot.src = preview;
   }, 120);
 }
 
@@ -1098,6 +1276,7 @@ document.getElementById("presets").addEventListener("click", (event) => {
   const preset = event.target.dataset.preset;
   if (preset) applyPreset(preset);
 });
+for (const field of [screenW, screenH]) field.addEventListener("input", render);
 fromInput.addEventListener("change", render);
 toInput.addEventListener("change", render);
 
@@ -1140,6 +1319,15 @@ document.getElementById("copy").addEventListener("click", async (event) => {
     flash(button, "Copied", true);
   } else {
     selectUrl();
+    flash(button, "Press ⌘/Ctrl+C", false);
+  }
+});
+
+document.getElementById("share").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (await copyText(location.href)) {
+    flash(button, "Copied", true);
+  } else {
     flash(button, "Press ⌘/Ctrl+C", false);
   }
 });
@@ -1196,6 +1384,254 @@ document.getElementById("rotate").addEventListener("click", () => {
   quoteText.value = "";
   quoteAuthor.value = "";
   render();
+});
+
+// ── Markers ─────────────────────────────────────────────────────────────────
+// A list, not a row of slots: press + and another marker exists. Each one is a
+// rule, a colour and a name, and goes into the link as one `m` parameter —
+// `mo,we@blue@Gym`. The name is never drawn on the wallpaper; it rides in the
+// link so a builder opened from a shared URL comes back with the names on.
+const MARKER_CAP = 32;          // mirrors markers.MAX_MARKERS
+const MARKER_LABEL_MAX = 24;    // ...and markers.MAX_LABEL
+const MARKER_KINDS = [["days", "Weekdays"], ["month", "Day of month"],
+                      ["date", "One date"], ["range", "A stretch"]];
+const MARKER_CODES = ["mo", "tu", "we", "th", "fr", "sa", "su"];
+// A marker's rows are the children of #marker-list in the same order, so the
+// pairing needs no id, no dataset and nothing stored on the object itself —
+// which is also what lets the whole array go into localStorage as it stands.
+const markerList = document.getElementById("marker-list");
+const markerAdd = document.getElementById("marker-add");
+let markers = [];
+
+function newMarker() {
+  return {
+    label: "", kind: "days", days: [0, 2, 4], monthdays: [1],
+    date: iso(new Date()), until: iso(new Date()), pull: false,
+    // Cycled from blue rather than from the top of the list: orange already
+    // means today and the month ends, and a marker in it reads as one of those.
+    color: HUES[(markers.length + 4) % HUES.length][0],
+  };
+}
+
+function markerRule(marker) {
+  // A trailing ~ pulls the day back off anything nobody works. Wages are the
+  // case: paying late breaks the law and paying early does not.
+  const tail = marker.pull ? "~" : "";
+  if (marker.kind === "month") {
+    if (!marker.monthdays.length) return "";
+    return marker.monthdays.map((day) => `d${day}`).join(",") + tail;
+  }
+  if (marker.kind === "date") return marker.date + tail;
+  // A stretch is already a block of days, so it never carries the tail.
+  if (marker.kind === "range") {
+    return marker.until < marker.date ? "" : `${marker.date}..${marker.until}`;
+  }
+  if (!marker.days.length) return "";
+  return marker.days.map((index) => MARKER_CODES[index]).join(",") + tail;
+}
+
+// `named` is off for the preview: the name is never drawn, so letting it into
+// the preview's address would refetch the whole PNG on every keystroke and the
+// picture would blink under the person typing.
+function markerSpec(marker, { named = true } = {}) {
+  const rule = markerRule(marker);
+  if (!rule) return null;
+  const label = named ? marker.label.trim().slice(0, MARKER_LABEL_MAX) : "";
+  const spec = `${rule}@${marker.color}`;
+  return label ? `${spec}@${encodeURIComponent(label)}` : spec;
+}
+
+// Takes a spec as the query string hands it over — already percent-decoded, so
+// only the first two separators are structural and the rest is the name.
+function parseMarkerSpec(text) {
+  const first = text.indexOf("@");
+  if (first < 0) return null;
+  let rule = text.slice(0, first).trim().toLowerCase();
+  const rest = text.slice(first + 1);
+  const second = rest.indexOf("@");
+  const marker = newMarker();
+  marker.color = (second < 0 ? rest : rest.slice(0, second)).trim().toLowerCase();
+  marker.label = second < 0 ? "" : rest.slice(second + 1).trim().slice(0, MARKER_LABEL_MAX);
+  if (!marker.color) return null;
+
+  marker.pull = rule.endsWith("~");
+  rule = rule.replace(/~$/, "");
+
+  const numbers = rule.split(",").map((code) => code.trim());
+  const stretch = rule.match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
+  if (stretch) {
+    if (stretch[2] < stretch[1]) return null;
+    marker.kind = "range";
+    marker.pull = false;  // the server refuses a stretch that is pulled back
+    [, marker.date, marker.until] = stretch;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(rule)) {
+    marker.kind = "date";
+    marker.date = rule;
+  } else if (numbers.every((code) => /^d([1-9]|[12]\d|3[01])$/.test(code))) {
+    marker.kind = "month";
+    marker.monthdays = [...new Set(numbers.map((code) => Number(code.slice(1))))]
+                         .sort((a, b) => a - b);
+  } else {
+    const days = rule.split(",").map((code) => MARKER_CODES.indexOf(code.trim()))
+                     .filter((index) => index >= 0);
+    if (!days.length) return null;
+    marker.kind = "days";
+    marker.days = [...new Set(days)].sort((a, b) => a - b);
+  }
+  return marker;
+}
+
+function reviveMarker(saved) {
+  const marker = { ...newMarker(), ...saved };
+  marker.days = Array.isArray(marker.days) ? marker.days : [];
+  return marker;
+}
+
+function hueHex(name) {
+  const known = HUES.find(([hue]) => hue === name);
+  return known ? known[1] : `#${name.replace("#", "")}`;
+}
+
+function chips(attribute, entries) {
+  return entries.map(([value, label]) =>
+    `<button type="button" data-${attribute}="${value}">${label}</button>`).join("");
+}
+
+function markerRow(marker) {
+  const row = document.createElement("div");
+  row.className = "marker";
+  const months = Array.from({ length: 31 }, (_, i) => [i + 1, i + 1]);
+  row.innerHTML = `
+    <div class="marker-head">
+      <input type="text" class="marker-name" maxlength="${MARKER_LABEL_MAX}"
+             placeholder="Name it — Gym, Rent, Holiday" aria-label="Marker name">
+      <span class="seg">${chips("kind", MARKER_KINDS)}</span>
+      <button type="button" class="action small marker-drop" aria-label="Remove this marker">✕</button>
+    </div>
+    <div class="marker-body">
+      <span class="seg" data-rule="days">${chips("weekday",
+        WEEKDAYS.map((label, index) => [index, label]))}</span>
+      <span class="seg" data-rule="month">${chips("monthday", months)}</span>
+      <span class="datefield" data-rule="date">
+        <button type="button" class="action small marker-date" data-slot="date"
+                aria-haspopup="dialog" aria-expanded="false"></button>
+        <input type="date" hidden>
+      </span>
+      <span class="rangefield" data-rule="range">
+        <span class="datefield">
+          <button type="button" class="action small marker-date" data-slot="date"
+                  aria-haspopup="dialog" aria-expanded="false"></button>
+          <input type="date" hidden>
+        </span>
+        <span class="rangedash" aria-hidden="true">→</span>
+        <span class="datefield">
+          <button type="button" class="action small marker-date" data-slot="until"
+                  aria-haspopup="dialog" aria-expanded="false"></button>
+          <input type="date" hidden>
+        </span>
+      </span>
+      <span class="swatches">${HUES.map(([name, hex]) =>
+        `<button type="button" data-value="${name}" title="${name}"
+                 style="background:${hex}"></button>`).join("")}</span>
+    </div>
+    <label class="marker-pull" data-rule-pull>
+      <input type="checkbox" class="marker-pull-box">
+      <span>Pull back off days nobody works</span>
+    </label>`;
+
+  row.querySelectorAll("input[type=date]").forEach((field) => {
+    field.addEventListener("change", () => {
+      const slot = field.parentNode.querySelector(".marker-date").dataset.slot;
+      if (field.value) marker[slot] = field.value;
+      render();
+    });
+  });
+
+  row.querySelector(".marker-pull-box").addEventListener("change", (event) => {
+    marker.pull = event.target.checked;
+    render();
+  });
+
+  row.querySelector(".marker-name").addEventListener("input", (event) => {
+    marker.label = event.target.value;
+    render();
+  });
+  row.addEventListener("click", (event) => {
+    const target = event.target.closest("button");
+    if (!target) return;
+    const chosen = target.dataset;
+    if (target.classList.contains("marker-date")) {
+      openCalendar(target, target.parentNode.querySelector("input[type=date]"));
+      return;  // the calendar renders for itself once a day is picked
+    }
+    if (target.classList.contains("marker-drop")) {
+      markers.splice([...markerList.children].indexOf(row), 1);
+      row.remove();
+    } else if ("kind" in chosen) {
+      marker.kind = chosen.kind;
+    } else if ("weekday" in chosen) {
+      const days = new Set(marker.days);
+      const day = Number(chosen.weekday);
+      if (!days.delete(day)) days.add(day);
+      marker.days = [...days].sort((a, b) => a - b);
+    } else if ("monthday" in chosen) {
+      const days = new Set(marker.monthdays);
+      const day = Number(chosen.monthday);
+      if (!days.delete(day)) days.add(day);
+      marker.monthdays = [...days].sort((a, b) => a - b);
+    } else if ("value" in chosen) {
+      marker.color = chosen.value;
+    } else {
+      return;
+    }
+    render();
+  });
+  return row;
+}
+
+function paintMarkers() {
+  while (markerList.childElementCount < markers.length) {
+    markerList.append(markerRow(markers[markerList.childElementCount]));
+  }
+  markers.forEach((marker, index) => {
+    const row = markerList.children[index];
+    row.classList.toggle("idle", !markerSpec(marker));
+    row.style.borderLeftColor = hueHex(marker.color);
+    const name = row.querySelector(".marker-name");
+    if (name.value !== marker.label) name.value = marker.label;
+    row.querySelector(".marker-pull-box").checked = marker.pull;
+
+    const on = (selector, key, value) => row.querySelectorAll(selector).forEach((button) => {
+      button.setAttribute("aria-pressed", String(value(button.dataset[key])));
+    });
+    on("[data-kind]", "kind", (kind) => kind === marker.kind);
+    on("[data-weekday]", "weekday", (day) => marker.days.includes(Number(day)));
+    on("[data-monthday]", "monthday", (day) => marker.monthdays.includes(Number(day)));
+    on(".swatches button", "value", (hue) => hue === marker.color);
+    row.querySelectorAll("[data-rule]").forEach((control) => {
+      control.hidden = control.dataset.rule !== marker.kind;
+    });
+
+    row.querySelectorAll(".marker-date").forEach((button) => {
+      const value = marker[button.dataset.slot];
+      button.parentNode.querySelector("input[type=date]").value = value;
+      button.textContent = dayLabel(value);
+    });
+    // A stretch is a block of days already; there is nothing to pull back.
+    row.querySelector(".marker-pull").hidden = marker.kind === "range";
+  });
+
+  document.getElementById("marker-empty").hidden = markers.length > 0;
+  markerAdd.disabled = markers.length >= MARKER_CAP;
+  document.getElementById("marker-cap").textContent = markers.length >= MARKER_CAP
+    ? `${MARKER_CAP} markers is the cap — past that a link stops being one.` : "";
+}
+
+markerAdd.addEventListener("click", () => {
+  if (markers.length >= MARKER_CAP) return;
+  markers.push(newMarker());
+  render();
+  markerList.lastElementChild.querySelector(".marker-name").focus();
 });
 
 // The page's own theme, separate from the wallpaper's: `auto` leaves it to the

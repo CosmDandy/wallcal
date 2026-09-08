@@ -27,17 +27,22 @@ from .devices import DeviceError
 from .devices import resolve as resolve_size
 from .grid import DEFAULT_WEEKS_PER_ROW, GridError, WeekNumbering
 from .layout import ClockError, LabelError, LayoutError, parse_clock, parse_label_side
+from .markers import MarkerError, TooManyMarkers, parse_markers
 from .modes import ModeError, ModeNotImplemented, Params, build
 from .palette import ColorError, InkError, ThemeError, parse_color, parse_ink, parse_theme
 from .preview import overlay
 from .quotes import rotation
 from .render import (
+    BarError,
     FooterError,
     HeaderError,
+    ProductionError,
     ShapeError,
     Style,
+    parse_bar,
     parse_footer,
     parse_header,
+    parse_production,
     parse_shape,
     render_span,
     to_png,
@@ -204,7 +209,9 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         str, Query(alias="hdr", description="top axis: days, count or none")
     ] = "days",
     footer: Annotated[str, Query(alias="ft", description="pct, left, week or none")] = "pct",
-    bar: Annotated[bool, Query(alias="br", description="progress rule under the footer")] = True,
+    bar: Annotated[
+        str, Query(alias="br", description="progress rule: span, year, quarter, month, none")
+    ] = "1",
     fade: Annotated[bool, Query(alias="fd", description="fade older past days")] = True,
     month_breaks: Annotated[
         bool, Query(alias="mb", description="start every month on a fresh row")
@@ -215,7 +222,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     ] = "left",
     clock: Annotated[
         str, Query(alias="ck", description="room for the lock screen clock: std or big")
-    ] = "std",
+    ] = "big",
     shift: Annotated[
         int, Query(alias="sh", ge=-15, le=15, description="nudge the grid, percent of height")
     ] = 0,
@@ -224,9 +231,14 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     first_weekday: Annotated[
         int, Query(alias="wd", ge=0, le=6, description="0 Monday .. 6 Sunday")
     ] = 0,
-    weekends: Annotated[bool, Query(alias="we", description="band behind Sat and Sun")] = True,
+    weekends: Annotated[bool, Query(alias="we", description="band behind days off")] = True,
+    production: Annotated[str, Query(alias="pc", description="production calendar: 0 or ru")] = "0",
     marks: Annotated[bool, Query(alias="mk", description="tint the last day of a month")] = True,
     month_mark: Annotated[str, Query(alias="mc", description="month-end tint")] = "orange",
+    markers: Annotated[
+        list[str] | None,
+        Query(alias="m", description="tint a rule's days: <rule>@<colour>[@<label>]"),
+    ] = None,
     quote: Annotated[
         bool, Query(alias="q", description="a line for the day under the grid")
     ] = False,
@@ -248,6 +260,15 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     zone = _zone(tz or DEFAULT_TZ)
     now = datetime.now(zone)
 
+    # Too many markers is a 422 rather than a 400: the URL is well formed and
+    # every marker in it is valid, there are just more than one link may carry.
+    try:
+        rules = parse_markers(markers)
+    except TooManyMarkers as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (MarkerError, ColorError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     try:
         size = resolve_size(device, width, height)
         style = Style(
@@ -258,7 +279,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             axes=axes,
             header=parse_header(header),
             footer=parse_footer(footer),
-            bar=bar,
+            bar=parse_bar(bar),
             fade=fade,
             split=split,
             labels=parse_label_side(labels),
@@ -268,8 +289,10 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             language=parse_language(language),
             first_weekday=first_weekday,
             weekends=weekends,
+            production=parse_production(production),
             marks=marks,
             month_mark=parse_color(month_mark),
+            markers=rules,
             quote=quote,
             quote_text=quote_text,
             quote_author=quote_author,
@@ -279,6 +302,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         DeviceError,
         ColorError,
         ShapeError,
+        BarError,
         FooterError,
         HeaderError,
         LabelError,
@@ -286,6 +310,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         ClockError,
         InkError,
         LanguageError,
+        ProductionError,
     ) as exc:
         raise HTTPException(400, str(exc)) from exc
     except ValueError as exc:

@@ -39,9 +39,10 @@ class ColorError(ValueError):
     """Raised for a color spec that is neither a known name nor a hex literal."""
 
 
-# The iPhone 16 finishes are eyeballed off Apple's product shots, not sampled
-# from a device: close enough that the wallpaper agrees with the phone in your
-# hand, not a colour-managed match.
+# The device finishes are the published sRGB values of the iPhone 16 and 16 Pro
+# bodies, not an impression of them: a wallpaper meant to disappear into the
+# phone it is on has to be the same colour as that phone, and eyeballing the
+# product shots put every one of them several shades too pale.
 THEMES: dict[str, RGB] = {
     "light": SOLARIZED["base3"],
     "dark": SOLARIZED["base03"],
@@ -49,10 +50,14 @@ THEMES: dict[str, RGB] = {
     "grey": (0x1C, 0x1C, 0x1E),
     "white": EXTRA["white"],
     "black": EXTRA["black"],
-    "teal": (0xC6, 0xDD, 0xD6),
-    "ultramarine": (0xC2, 0xC6, 0xE8),
-    "pink": (0xF1, 0xD7, 0xDD),
-    "sand": (0xE8, 0xDF, 0xD2),
+    # iPhone 16 / 16 Plus
+    "teal": (0xB0, 0xD4, 0xD2),
+    "ultramarine": (0x9A, 0xAD, 0xF6),
+    "pink": (0xF2, 0xAD, 0xDA),
+    "onyx": (0x3C, 0x40, 0x42),  # the black body, which is not black
+    # iPhone 16 Pro / Pro Max. `sand` keeps its name: it is in links already.
+    "sand": (0xBF, 0xA4, 0x8F),  # desert titanium
+    "natural": (0xC2, 0xBC, 0xB2),  # natural titanium
 }
 
 
@@ -127,6 +132,11 @@ LIGHT_RAMP = Ramp(
 )
 
 DARK_THRESHOLD = 0.2  # relative luminance below which a background counts as dark
+# The device finishes are mid-tone — desert titanium, ultramarine — and against
+# those a fixed Solarized step for small type lands at a contrast of under two.
+# Type is pulled towards the strong end until it clears this; the dots are left
+# alone, since a fading field is the whole point of them.
+TEXT_CONTRAST = 3.0
 
 
 INKS = ("bright", "cream")
@@ -141,6 +151,23 @@ def parse_ink(spec: str) -> str:
     if key not in INKS:
         raise InkError(f"unknown ink {spec!r}; use one of: {', '.join(INKS)}")
     return key
+
+
+def contrast(one: RGB, other: RGB) -> float:
+    """WCAG contrast ratio, 1 (identical) to 21 (black on white)."""
+    light, dark = sorted((luminance(one), luminance(other)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def _readable(tone: RGB, background: RGB, strong: RGB) -> RGB:
+    """The given tone, or as far towards `strong` as it takes to be legible."""
+    if contrast(tone, background) >= TEXT_CONTRAST:
+        return tone
+    for step in range(1, 11):
+        candidate = lerp(tone, strong, step / 10)
+        if contrast(candidate, background) >= TEXT_CONTRAST:
+            return candidate
+    return strong
 
 
 def ramp_for(background: RGB, ink: str = "bright") -> Ramp:
@@ -167,6 +194,8 @@ def ramp_for(background: RGB, ink: str = "bright") -> Ramp:
         faint=faint,
         future=lerp(background, faint, 0.42),
         weekend=lerp(background, faint, 0.16),
+        axis=_readable(base.axis, background, base.strong),
+        footer=_readable(base.footer, background, base.strong),
     )
 
 

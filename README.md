@@ -26,8 +26,27 @@ tinted cell in the accent hue. With `q=1` a line for the day sits under the grid
 picked from `src/wallcal/quotes.py` by the date — the same day always gives the
 same line, so a phone that refetches does not flicker between two of them. The dot field sits on the screen's center line — the labels
 live in reserves on either side, so switching them off moves nothing. The top
-third of the screen is left empty for the lock screen clock, and the progress
-line drops into the lane between the flashlight and camera buttons.
+of the screen is left empty for the lock screen clock, sized for the tall one by
+default. The footer line sits just under the grid: the lane between the
+flashlight and camera buttons is where iOS puts the Focus pill and the
+notification stack, so only the progress rule goes down there — a hairline still
+reads under a notification, a sentence does not.
+
+`pc=ru` hands that band to the Russian production calendar instead of to the
+weekend. It then follows the days actually not worked: the Friday moved next to
+12 June joins Thursday and the weekend into one four-day shape, and the Saturday
+the government turned into a working day loses its band. The band is the union
+of those days rather than two fixed columns — a run merges sideways and down the
+rows, so what you see is the shape of the time off. It stops at the gap between
+the two weeks in a row: the gap is what makes a row read as two weeks, and
+nothing else in the drawing crosses it.
+
+The holidays come from art. 112 of the Labour Code and never move. The transfers
+on top of them do, once a year and by decree, so they are a table in
+`src/wallcal/workdays.py` rather than a rule — 2025 and 2026 are in it. A year
+that is not falls back to plain weekends plus the holidays: wrong by a handful
+of days rather than by a season, which is the failure a calendar can survive.
+Guessing at a decree is not.
 
 Add `pv=1` to any URL to get a lock screen mock-up over the wallpaper — clock,
 date, buttons — for judging the composition in a browser. Never set that one as
@@ -85,18 +104,20 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `hdr`| what runs along the top            | `days`  | `days` MO TU…, `count` 7 · 14, `none`     |
 | `lang` | wording on the axes and footer   | `en`    | `en`, `ru`                                |
 | `wd` | first day of the week              | `0`     | `0` Monday … `6` Sunday                   |
-| `ck` | room kept for the lock screen clock| `std`   | `std`, `big` for the tall iOS clock       |
+| `ck` | room kept for the lock screen clock| `big`   | `big` for the tall iOS clock, `std`       |
 | `sh` | nudge the grid, percent of height  | `0`     | `-15`…`15`, clamped to the safe band      |
 | `ink`| strong end of the ramp             | `bright`| `bright`, `cream`                         |
 | `ft` | what the footer says               | `pct`   | `pct`, `left`, `week`, `none`             |
-| `br` | progress rule under the footer     | `1`     | `1`, `0`                                  |
+| `br` | period the progress rule fills     | `1`     | `1` span, `year`, `quarter`, `month`, `0` |
 | `mb` | start every month on a fresh row   | `0`     | `1`, `0`                                  |
 | `fd` | fade older past days               | `1`     | `1`, `0`                                  |
 | `g`  | whole weeks per row                | `2`     | `1`–`4`                                   |
 | `sp` | gap between weeks in a row         | `1`     | `1`, `0`                                  |
-| `we` | band behind Saturday and Sunday    | `1`     | `1`, `0`                                  |
+| `we` | band behind the days not worked    | `1`     | `1`, `0`                                  |
+| `pc` | production calendar behind the band| `0`     | `0` weekends only, `ru` Russia            |
 | `mk` | tint the last day of each month    | `1`     | `1`, `0`                                  |
 | `mc` | month-end tint                     | `orange`| Solarized name or hex                     |
+| `m`  | tint a rule's days, repeatable     | —       | `<rule>[~]@<color>[@<label>]`             |
 | `q`  | a line for the day under the grid  | `0`     | `1`, `0`                                  |
 | `qt` | your own line, instead of the day's| —       | up to 240 characters                      |
 | `qa` | who said it                        | —       | up to 60 characters                       |
@@ -120,11 +141,49 @@ background instead would land on neutral grey, which beside the orange accent
 reads faintly green; the palette's own steps carry a consistent cool cast and do
 not. `fg` still overrides the dots when you want an exact color.
 
+`m` marks days of your own, one `m` per rule: `m=mo,we@blue@Gym` tints every
+Monday and Wednesday, `m=d10,d25@green@Payday` the 10th and the 25th of every
+month, `m=2026-12-31@red@Ship` a single date, and
+`m=2026-07-06..2026-07-12@cyan@Holiday` every day of a stretch — a trip, a
+sprint, a notice period. Weekdays and days of the month
+both take a list, because the thing being marked usually happens more than once
+a month. A day the month does not have is skipped rather than clamped: `d31`
+marks no day in April.
+
+A rule ending in `~` is pulled back off any day nobody works —
+`m=d10,d25~@green@Wages`. Wages are the case it exists for: paying late breaks
+the law and paying early does not, so a day landing on a day off moves backwards
+to the last working day before it, however long the run. Which days count as not
+worked is the drawing's own answer, so with `pc=ru` a holiday pulls the day back
+exactly as a Sunday does. A day pulled back out of the drawn span is simply not
+drawn, and a stretch cannot be pulled back at all — it is a block of days
+already, and moving every one of them would fold it shut.
+
+The tint is the month-end recipe held back — the background lifted towards the
+colour, but less far, and the shape pulled in off the cell edges — so a marked
+day reads as a note on the field rather than a second grid over it, and it is
+laid over both the non-working band and the month-end mark. Where two rules
+cover the same day the last one in the URL wins, so write the rule first and its
+exception after it.
+
+The label after the colour is never drawn. It is there so a link handed to
+someone else opens in the builder with the names still on it — a row of
+anonymous colours is not something a second person can edit. Thirty-two markers
+is the cap and past it the request is refused: the whole configuration is the
+URL, and a URL nobody can paste has stopped being one.
+
 The response may be cached until midnight in the requested zone, and no longer —
 that is exactly when the drawing changes. Send the `ETag` back as
 `If-None-Match` and an unchanged drawing answers `304` with no body: inside one
 span most mornings render the same image, and neither the transfer nor the
 render has to happen.
+
+The progress rule under the footer measures whatever `br` names. Left at `1`
+it fills with the drawn span — which the dot field already pictures, so the two
+say one thing twice. Point it at a calendar period instead and it says something
+the dots cannot: `mode=month&br=year` puts the month you are looking at inside
+its year. `br=year&ft=pct` then shows two different numbers, one in words and
+one as a picture, with nothing naming which is which; `ft=none` is the way out.
 
 `pv=1` is a viewing aid for the builder page, not part of a wallpaper — the
 builder never puts it in the link it hands you.
@@ -170,7 +229,8 @@ nothing in the image assumes any of them.
 ## Develop
 
 ```bash
-uv run pytest            # 503 tests, every screen preset
+uv run pytest            # 561 tests, every screen preset
+uv run pytest            # 598 tests, every screen preset
 uv run mypy --strict src/wallcal
 uvx ruff check --fix . && uvx ruff format .
 ```
