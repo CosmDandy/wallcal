@@ -31,7 +31,7 @@ SUPERSAMPLE = 8
 # it carries less weight than the month-end mark: a halo hugging the dot instead
 # of the whole cell filled, and the colour mixed in short of the ramp's own tint.
 # Filling the cell at full tint made a weekly rule read as a second grid.
-MARKER_INSET = 0.5  # of the clear space between the dot and the cell edge
+MARKER_INSET = 0.5  # of the clear space on the tighter of the cell's two axes
 MARKER_TINT = 0.7  # of the ramp's tint
 BAND_RADIUS = 0.35  # corner radius of the non-working band, as a fraction of pitch_x
 FADE_FLOOR = 0.0  # 0 lands on the ramp's faint end, 1 on its strong end
@@ -392,11 +392,18 @@ def _draw_markers(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style:
     if not style.markers:
         return
     draw = ImageDraw.Draw(image)
-    inset_x = round((lay.pitch_x - lay.dot) / 2 * MARKER_INSET)
-    inset_y = round((lay.pitch_y - lay.dot) / 2 * MARKER_INSET)
-    # The radius follows the shrunken box, or a halo this thin would round away
-    # into a lozenge.
-    radius = round((lay.pitch_x - 2 * inset_x) * 0.35)
+    # The halo is the dot's own outline pushed out by one thickness, not the cell
+    # inset towards it. The cell is not square — 62x70 on an i16 against a 40px
+    # dot — so taking a share of each axis left the ring 5px at the sides and 7px
+    # above and below, and the mark read as though it had slipped sideways. One
+    # thickness, off the tighter axis, and it sits evenly all the way round.
+    ring = round((min(lay.pitch_x, lay.pitch_y) - lay.dot) / 2 * MARKER_INSET)
+    # Offsetting a rounded rectangle outwards by d gives a radius of r + d, and
+    # that is the whole rule: share the dot's own radius rather than invent one,
+    # and the two roundings are concentric. A circle is the same rule with r as
+    # half the dot, which is why one branch covers both shapes.
+    corner = lay.dot / 2 if style.shape is Shape.CIRCLE else lay.corner
+    radius = round(corner + ring)
     # style.ramp rebuilds the whole ramp on every read, and the tints are the
     # same for every cell: mixed once, here.
     amount = style.ramp.tint * MARKER_TINT
@@ -419,9 +426,9 @@ def _draw_markers(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style:
         fill = claimed.get(cell.day)
         if fill is None:
             continue
-        left, top, right, bottom = lay.cell_box(cell.row, cell.col)
+        ox, oy = lay.dot_origin(cell.row, cell.col)
         draw.rounded_rectangle(
-            (left + inset_x, top + inset_y, right - inset_x, bottom - inset_y),
+            (ox - ring, oy - ring, ox + lay.dot - 1 + ring, oy + lay.dot - 1 + ring),
             radius=radius,
             fill=fill,
         )

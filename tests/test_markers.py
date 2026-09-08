@@ -8,6 +8,7 @@ from importlib.resources import files
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image, ImageChops
 
 from wallcal import layout as L
 from wallcal import workdays
@@ -23,7 +24,7 @@ from wallcal.markers import (
     parse_markers,
 )
 from wallcal.palette import SOLARIZED, lerp
-from wallcal.render import MARKER_INSET, MARKER_TINT, Style, render_span
+from wallcal.render import MARKER_INSET, MARKER_TINT, Shape, Style, render_span
 
 from .conftest import SPAN_END, SPAN_START, TODAY
 
@@ -249,13 +250,64 @@ def marker_tint(style: Style, color: tuple[int, int, int]) -> tuple[int, int, in
     return lerp(style.background, color, style.ramp.tint * MARKER_TINT)
 
 
+def halo_ring(lay: L.Layout) -> int:
+    """How far the halo stands off the dot, on every side."""
+    return round((min(lay.pitch_x, lay.pitch_y) - lay.dot) / 2 * MARKER_INSET)
+
+
 def tint_at(image, lay: L.Layout, grid, day: date):
     """Mid-width, just inside the halo's top edge: tint there, never the dot."""
     cell = next(c for c in grid.cells if c.day == day)
-    _, top, _, _ = lay.cell_box(cell.row, cell.col)
-    inset = round((lay.pitch_y - lay.dot) / 2 * MARKER_INSET)
+    _, oy = lay.dot_origin(cell.row, cell.col)
     cx, _ = lay.cell_center(cell.row, cell.col)
-    return image.getpixel((round(cx), top + inset + 1))
+    return image.getpixel((round(cx), oy - halo_ring(lay) + 1))
+
+
+@pytest.mark.parametrize("shape", [Shape.SQUARE, Shape.CIRCLE])
+def test_the_halo_stands_off_the_dot_evenly_on_every_side(device: Device, shape: Shape):
+    """The cell is not square and the dot is, so a halo cut from the cell slips sideways."""
+    grid = build_span(SPAN_START, SPAN_END, TODAY)
+    lay = L.compute(device.width, device.height, grid.rows, grid.columns, grid.columns // 7)
+    style = Style(
+        shape=shape,
+        weekends=False,
+        marks=False,
+        fade=False,
+        markers=parse_markers(["we@blue@Gym"]),
+    )
+    image = render_span(grid, device.width, device.height, style)
+    cell = next(c for c in grid.cells if c.day == date(2026, 9, 2))  # a Wednesday
+    ox, oy = lay.dot_origin(cell.row, cell.col)
+
+    # The ink inside the cell is the halo; the dot sits inside it at a known box,
+    # so the four gaps between the two boxes are the ring.
+    box = lay.cell_box(cell.row, cell.col)
+    patch = image.crop((box[0], box[1], box[2] + 1, box[3] + 1))
+    flat = Image.new("RGB", patch.size, style.background)
+    found = ImageChops.difference(patch, flat).getbbox()
+    assert found is not None, "nothing was drawn"
+    left, top, right, bottom = (
+        found[0] + box[0],
+        found[1] + box[1],
+        found[2] + box[0] - 1,
+        found[3] + box[1] - 1,
+    )
+
+    sides = [ox - left, right - (ox + lay.dot - 1), oy - top, bottom - (oy + lay.dot - 1)]
+    assert max(sides) - min(sides) <= 1, f"the halo is lopsided: {sides}"
+    assert min(sides) >= 1, f"the halo vanished into the dot: {sides}"
+
+
+def test_the_halo_shares_the_dot_s_rounding(device: Device):
+    """Offsetting a rounded rectangle by d gives radius r + d. Anything else reads wrong."""
+    grid = build_span(SPAN_START, SPAN_END, TODAY)
+    lay = L.compute(device.width, device.height, grid.rows, grid.columns, grid.columns // 7)
+    ring = halo_ring(lay)
+
+    # The corner the renderer uses, restated here so a change to one has to face
+    # the other: half the dot for a circle, the dot's own corner for a square.
+    assert round(lay.dot / 2 + ring) == round(lay.dot / 2) + ring
+    assert lay.corner + ring > lay.corner, "a halo with the dot's radius would not nest"
 
 
 def test_only_a_marked_day_takes_the_tint(device: Device):
