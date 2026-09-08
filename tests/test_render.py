@@ -532,9 +532,12 @@ def test_counting_puts_a_number_over_the_end_of_each_week(device: Device):
 # The union has to reduce to exactly those shapes when nothing moves the days
 # off, and a hash is the only assertion that can say "exactly".
 # Digests of the band as the column-drawing code left it, carried across the
-# rewrite that turned it into a union of cells. They were checked against the
-# commit before the rewrite: all thirty are byte-identical, which is the whole
-# claim — with no production calendar the new code draws the old picture.
+# rewrite that turned it into a union of cells: with no production calendar the
+# new code draws the old picture. Two entries are marked, and are the exception
+# that proves it — with Sunday starting the week and no gap between weeks, the
+# old code left a two-pixel notch where Saturday met Sunday across the boundary.
+# Closing that is the whole point of the rewrite, so those two are new pictures
+# on purpose. Every other one of the forty-two is byte-identical.
 BAND_GOLDEN = {
     (0, True, 1): "5dc3b99f78413e8a",
     (0, True, 2): "6850c38526da92f0",
@@ -566,6 +569,18 @@ BAND_GOLDEN = {
     (4, False, 1): "97dd01cee35f7606",
     (4, False, 2): "c399e72f99e98513",
     (4, False, 4): "b91beb4b78fd71dd",
+    (5, True, 1): "33cd4ff2a0c95059",
+    (5, True, 2): "d75baec2c7162890",
+    (5, True, 4): "c390556803ed026b",
+    (5, False, 1): "33cd4ff2a0c95059",
+    (5, False, 2): "b617644fc910a884",
+    (5, False, 4): "a799289727ba4549",
+    (6, True, 1): "b09ac533b85db718",
+    (6, True, 2): "7491c4a82aef591c",
+    (6, True, 4): "b9684601fc81969a",
+    (6, False, 1): "b09ac533b85db718",
+    (6, False, 2): "2aedbe7de1811382",  # the notch, now closed
+    (6, False, 4): "10645a072fe80fd1",  # the notch, now closed
 }
 
 
@@ -673,6 +688,34 @@ def test_the_band_stops_at_the_gap_between_the_weeks():
     assert lay.group_gap > 2, "no gap to test"
     for x in range(right + 1, lay.cell_box(sunday_row, sunday_col + 1)[0]):
         assert image.getpixel((x, middle)) == style.background
+
+
+def test_a_run_crosses_a_week_boundary_only_when_no_gap_separates_them():
+    """With sp=0 the weeks are flush, and a seam there is a notch, not a break."""
+    # 2 November 2025 is a Sunday and the 3rd is the day off moved off Saturday
+    # the 1st, so with two weeks to a row they are the last and first columns of
+    # the two halves.
+    grid = build_span(date(2025, 11, 1), date(2025, 11, 30), date(2025, 11, 10))
+    by_day = {cell.day: cell for cell in grid.cells}
+    sunday, monday = by_day[date(2025, 11, 2)], by_day[date(2025, 11, 3)]
+    assert sunday.row == monday.row and monday.col % 7 == 0, "the fixture moved"
+
+    for split, wanted in ((False, 0), (True, None)):
+        style = Style(production=Production.RU, marks=False, split=split)
+        image = render_span(grid, 1179, 2556, style)
+        lay = L.compute(1179, 2556, grid.rows, grid.columns, grid.columns // 7, split=split)
+        left = lay.cell_box(sunday.row, sunday.col)
+        right = lay.cell_box(monday.row, monday.col)
+        # Up where the corners curve: a notch shows here before it shows at the
+        # widest part of the band.
+        y = left[1] + (left[3] - left[1]) // 4
+        bare = sum(
+            image.getpixel((x, y)) == style.background for x in range(left[2] - 1, right[0] + 2)
+        )
+        if wanted is None:
+            assert bare == lay.group_gap + 2, "the gap should be the whole of the break"
+        else:
+            assert bare == wanted, "flush weeks must leave no notch"
 
 
 def band_bounds(image: Image.Image, lay: L.Layout) -> tuple[int, int, int, int] | None:

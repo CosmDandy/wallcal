@@ -440,15 +440,19 @@ def _is_non_working(day: date, style: Style) -> bool:
 def _row_runs(grid: Grid, style: Style, row: int) -> tuple[tuple[int, int], ...]:
     """The row's non-working days as maximal column runs, `(first_col, last_col)`.
 
-    A run stops at the boundary between two weeks even when nothing separates
-    them on screen: the row is two whole weeks set side by side, and a band
-    reaching across would be the one mark in the drawing that denies it.
+    A run stops at the boundary between two weeks, because the row is two whole
+    weeks set side by side and a band reaching over the gap would be the one
+    mark in the drawing that denies it — but only while there is a gap. With
+    `sp=0` the weeks are flush, and stopping there put a two-pixel notch at the
+    top and bottom of a seam nothing separates: an hourglass exactly where this
+    drawing exists to show an unbroken run of days off.
     """
     runs: list[tuple[int, int]] = []
     for cell in grid.cells[row * grid.columns : (row + 1) * grid.columns]:
         if not _is_non_working(cell.day, style):
             continue
-        joins = bool(runs) and runs[-1][1] == cell.col - 1 and cell.col % DAYS_PER_WEEK != 0
+        boundary = cell.col % DAYS_PER_WEEK == 0 and style.split
+        joins = bool(runs) and runs[-1][1] == cell.col - 1 and not boundary
         if joins:
             runs[-1] = (runs[-1][0], cell.col)
         else:
