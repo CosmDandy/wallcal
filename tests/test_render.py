@@ -13,11 +13,13 @@ from PIL import Image, ImageChops
 
 from wallcal import layout as L
 from wallcal.devices import Device
+from wallcal.fonts import FONT_REGULAR, load_font
 from wallcal.grid import CellState, build_span
 from wallcal.palette import lerp, luminance
 from wallcal.render import (
     MOON_RATIO,
     MOON_STEPS,
+    SKY_GAP,
     BarMode,
     FooterMode,
     HeaderMode,
@@ -25,6 +27,7 @@ from wallcal.render import (
     Shape,
     ShapeError,
     Style,
+    _footer_text,
     _moon_masks,
     _sky_line,
     parse_shape,
@@ -741,61 +744,105 @@ def sky_layout(grid, device: Device, style: Style) -> L.Layout:
     )
 
 
-def test_the_moon_lands_in_the_band_under_the_grid(device: Device):
-    """One slot, and the moon centred in it: nothing of it reaches the dots."""
+def footer_ink(image: Image.Image, lay: L.Layout, style: Style) -> tuple[int, int, int, int] | None:
+    """The ink in the lane between the lock screen buttons."""
+    reach = lay.footer_font * 2
+    top = lay.footer_center_y - reach
+    strip = image.crop((0, top, lay.width, lay.footer_center_y + reach))
+    flat = Image.new("RGB", strip.size, style.background)
+    found = ImageChops.difference(strip, flat).getbbox()
+    if found is None:
+        return None
+    return found[0], found[1] + top, found[2], found[3] + top
+
+
+def test_the_moon_rides_the_footer_line(device: Device):
+    """It sits in the lane the footer already owns, sized to that line's type."""
     grid = grid_of()
-    style = Style(sky=SkyMode.MOON)
+    style = Style(sky=SkyMode.MOON, footer=FooterMode.NONE, bar=BarMode.NONE)
     lay = sky_layout(grid, device, style)
     image = render_span(grid, device.width, device.height, style)
 
-    bounds = band_bounds(image, lay)
-    assert bounds is not None, "nothing was drawn in the band"
+    bounds = footer_ink(image, lay, style)
+    assert bounds is not None, "nothing was drawn in the lane"
     left, top, right, bottom = bounds
-    size = round(lay.sky_font * MOON_RATIO)
+    size = round(lay.footer_font * MOON_RATIO)
 
     assert bottom - top == pytest.approx(size, abs=2)
     assert right - left == pytest.approx(size, abs=2)
-    assert (top + bottom) / 2 == pytest.approx(lay.quote_center_y, abs=2)
+    assert (top + bottom) / 2 == pytest.approx(lay.footer_center_y, abs=2)
     assert (left + right) / 2 == pytest.approx(lay.width / 2, abs=2)
 
 
-def test_the_band_costs_the_field_exactly_what_a_quote_costs(device: Device):
-    """The slot is one size whichever occupies it, so swapping them moves no dot."""
-    grid = grid_of()
-    moon = Style(sky=SkyMode.MOON)
-    quote = Style(quote=True)
+def test_the_sky_costs_the_field_nothing(device: Device):
+    """It moved into the lane precisely so the dots stop paying for it."""
+    grid = grid_of(date(2026, 1, 1), date(2026, 12, 31))  # the span that fills a band
+    bare, lit = Style(), Style(sky=SkyMode.MOON)
 
-    assert sky_layout(grid, device, moon) == sky_layout(grid, device, quote)
+    assert sky_layout(grid, device, bare) == sky_layout(grid, device, lit)
 
-    lay = sky_layout(grid, device, moon)
-    drawn = render_span(grid, device.width, device.height, moon)
-    written = render_span(grid, device.width, device.height, quote)
+    lay = sky_layout(grid, device, bare)
+    plain = render_span(grid, device.width, device.height, bare)
+    drawn = render_span(grid, device.width, device.height, lit)
     for cell in grid.cells:
         if cell.state is not CellState.OUTSIDE:
-            assert pixel_at_cell(drawn, lay, cell) == pixel_at_cell(written, lay, cell)
+            assert pixel_at_cell(plain, lay, cell) == pixel_at_cell(drawn, lay, cell)
 
 
-def test_the_band_is_only_reserved_when_something_wants_it(device: Device):
-    """A year is the span that fills its band, so it is where the reserve is felt."""
+def test_only_the_quote_reserves_the_band(device: Device):
     grid = grid_of(date(2026, 1, 1), date(2026, 12, 31))
     bare = sky_layout(grid, device, Style())
-    banded = sky_layout(grid, device, Style(sky=SkyMode.MOON))
+    lit = sky_layout(grid, device, Style(sky=SkyMode.MOON))
+    written = sky_layout(grid, device, Style(quote=True))
 
-    assert bare.quote_center_y == 0
-    assert banded.quote_center_y > banded.grid_y + banded.grid_height
-    assert banded.pitch_y < bare.pitch_y
+    assert bare.quote_center_y == lit.quote_center_y == 0
+    assert written.quote_center_y > written.grid_y + written.grid_height
+    assert written.pitch_y < bare.pitch_y
 
 
-def test_your_own_line_outranks_the_sky_and_the_sky_outranks_the_rotation():
-    """Writing something explicitly is asking for it — the rule `qt` and `q` already follow."""
-    assert Style(sky=SkyMode.MOON).shows_sky
-    assert not Style(sky=SkyMode.MOON).shows_quote
+def test_the_lane_gives_up_the_day_length_before_it_gives_up_size():
+    """The two clock times are what nothing else on the screen says, so they stay."""
+    grid = grid_of()
+    zone = ZoneInfo("Europe/Moscow")
+    moscow = (55.75, 37.62)
 
+    alone = Style(footer=FooterMode.NONE, sky=SkyMode.BOTH, location=moscow)
+    beside = Style(footer=FooterMode.WEEK, sky=SkyMode.BOTH, location=moscow)
+
+    full = _footer_text(grid, alone, zone, brief=False)
+    assert "05:43" in full and "19:10" in full  # the day's two ends
+    assert "13:27" in full  # its length
+    assert "\u2212" in full or "+" in full  # and how that changed overnight
+
+    # Beside a footer line the lane cannot hold all of it, and the length goes.
+    short = _footer_text(grid, beside, zone, brief=True)
+    assert "05:43" in short and "19:10" in short
+    assert "\u2212" not in short and "13:27" not in short
+
+
+def test_nothing_in_the_lane_is_ever_shrunk_to_fit_on_a_shipped_screen(device: Device):
+    """The give-up rule exists so the type size never has to move. Check it does not."""
+    grid = grid_of()
+    zone = ZoneInfo("Europe/Moscow")
+    for footer in (FooterMode.WEEK, FooterMode.PERCENT, FooterMode.NONE):
+        style = Style(footer=footer, sky=SkyMode.BOTH, location=(55.75, 37.62))
+        lay = sky_layout(grid, device, style)
+        font = load_font(FONT_REGULAR, lay.footer_font)
+        text = _footer_text(grid, style, zone, brief=False)
+        if font.getlength(text) > lay.footer_max_width:
+            text = _footer_text(grid, style, zone, brief=True)
+        moon = round(lay.footer_font * MOON_RATIO)
+        gap = round(lay.footer_font * SKY_GAP) if text else 0
+        assert moon + gap + font.getlength(text) <= lay.footer_max_width
+
+
+def test_the_sky_and_a_quote_no_longer_compete():
+    """They are in two different places now, so neither has to outrank the other."""
     both = Style(sky=SkyMode.MOON, quote=True)
-    assert both.shows_sky and not both.shows_quote
+    assert both.shows_sky and both.shows_quote
 
     written = Style(sky=SkyMode.MOON, quote_text="mine")
-    assert written.shows_quote and not written.shows_sky
+    assert written.shows_sky and written.shows_quote
 
 
 def test_the_rotation_still_wins_when_no_sky_was_asked_for():

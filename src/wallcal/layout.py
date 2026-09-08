@@ -70,7 +70,6 @@ QUOTE_SIZE = 0.0165  # quote type size as a fraction of screen height
 # The sun and moon band is the quote's slot with something else in it, so it
 # needs no reserve of its own — only a size. A hair under the quote's: the line
 # is digits, and digits at the quote's size read as a readout.
-SKY_SIZE = 0.0155  # sun and moon type size as a fraction of screen height
 
 MIN_PITCH = 4
 
@@ -170,7 +169,6 @@ class Layout:
     bar_center_y: int
     quote_center_y: int  # 0 when no band was reserved
     quote_font: int
-    sky_font: int
     axis_font: int
     footer_font: int
 
@@ -334,7 +332,6 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
         bar_center_y=round(BAR_ROW * height),
         quote_center_y=quote_center_y,
         quote_font=max(10, round(QUOTE_SIZE * height)),
-        sky_font=max(10, round(SKY_SIZE * height)),
         footer_max_width=width - 2 * round(CONTROLS_CLEAR * width),
         axis_font=axis_font,
         footer_font=footer_font,

@@ -121,7 +121,7 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `q`  | a line for the day under the grid  | `0`     | `1`, `0`                                  |
 | `qt` | your own line, instead of the day's| —       | up to 240 characters                      |
 | `qa` | who said it                        | —       | up to 60 characters                       |
-| `sky`| the band under the grid            | `none`  | `none`, `moon`, `sun`, `both`             |
+| `sky`| sun and moon on the footer line    | `none`  | `none`, `moon`, `sun`, `both`             |
 | `lat`| latitude, for `sun` and `both`     | —       | `-90`…`90`, kept to two decimals          |
 | `lon`| longitude, same                    | —       | `-180`…`180`, kept to two decimals        |
 | `dl` | day length and the overnight change| `1`     | `1`, `0`                                  |
@@ -176,12 +176,22 @@ anonymous colours is not something a second person can edit. Thirty-two markers
 is the cap and past it the request is refused: the whole configuration is the
 URL, and a URL nobody can paste has stopped being one.
 
-`sky` puts one band under the grid. `moon` draws the moon at tonight's phase,
-`sun` prints the day — `06:12 – 19:48 · 13:36 +2:14`, sunrise, sunset, how long
-the day is and how much it changed overnight — and `both` puts them side by
-side. `dl=0` drops the length and the change and leaves the two times. The band
-stands in the quote's slot and never splits it: your own line (`qt`) wins, then
-the sky, then the rotation (`q`).
+`sky` rides the footer line. `moon` draws the moon at tonight's phase at the head
+of it, `sun` prints the day — `06:12 – 19:48 · 13:36 +2:14`, sunrise, sunset, how
+long the day is and how much it changed overnight — and `both` puts them side by
+side. `dl=0` drops the length and the change and leaves the two times.
+
+It goes there because the lane was standing half empty: `ft=week` uses a third of
+it. So the sky costs the dots nothing, which a band under the grid could not
+say — it had to buy its place out of the field, eight pixels off the pitch on a
+year of them. Nothing now competes with the quote, either; the two are in
+different places and can both be on.
+
+The lane is one line wide and no wider, so `ft` and `sky` together do not always
+fit. There is an order to what goes: first the day's length and its change, then
+the type size. The two clock times stay, being the part of it nothing else on the
+screen says. On every screen that ships, `ft=pct` beside `sky=both` still lands
+at full size once the length has gone.
 
 The moon is drawn rather than set in type — the bundled Inter has no moon glyph
 — and in the field's own two tones: the disc takes the colour of a day not yet

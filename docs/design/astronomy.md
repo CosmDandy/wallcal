@@ -1,5 +1,15 @@
 # Sun and moon
 
+> **Superseded, 2026-09-08.** The band is gone. The sun line and the moon moved
+> onto the footer line, in the lane between the lock screen buttons, because the
+> lane was standing half empty — `ft=week` uses a third of it — and a band under
+> the grid could only pay for itself out of the dots. What follows is kept for
+> the reasoning it carries: the astronomy, the moon's geometry, the privacy
+> argument and the `tz` finding all still hold. What it says about *placement*
+> does not. The lane cannot hold `ft` and a full sun line at once, so the day's
+> length and its change are dropped first and the type size never moves.
+
+
 ## The recommendation
 
 Build it, but build one thing, not four. A single band under the grid, holding

@@ -9,7 +9,7 @@ wallpaper still renders in tens of milliseconds.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, timedelta, tzinfo
 from enum import Enum
 from functools import lru_cache
@@ -230,24 +230,24 @@ class Style:
 
     @property
     def shows_sky(self) -> bool:
-        """`qt` outranks the sky, the sky outranks `q`: most specific ask wins."""
-        return self.sky is not SkyMode.NONE and not self.quote_text
+        """Whether anything of the sky is drawn at all."""
+        return self.sky is not SkyMode.NONE
 
     @property
     def shows_quote(self) -> bool:
         """Your own line stands on its own: writing one is asking for a quote."""
-        return bool(self.quote_text) or (self.quote and not self.shows_sky)
+        return bool(self.quote_text) or self.quote
 
     @property
     def shows_band(self) -> bool:
         """Whether the strip under the grid is reserved at all.
 
-        One slot, one occupant, and the reserve is the same size whichever it
-        is. Sizing it to its contents would mean the field shifting half an
-        inch when a caption is swapped for a moon, and the wallpaper is the
-        dots: they do not move because something under them changed.
+        Only the quote takes it. The sky rides the footer line instead, where
+        the lane was standing half empty — `Week 3 of 13` uses a third of it —
+        and so costs the field nothing: a moon under the grid used to buy its
+        place with the dots, eight pixels off their pitch on a year of them.
         """
-        return self.shows_quote or self.shows_sky
+        return self.shows_quote
 
     @property
     def ramp(self) -> Ramp:
@@ -337,10 +337,8 @@ def render_span(
             else quotes.for_day(grid.today)
         )
         _draw_quote(image, lay, style, chosen)
-    elif style.shows_sky:
-        _draw_sky(image, lay, style, grid.today, zone)
-    if style.footer is not FooterMode.NONE:
-        _draw_footer(image, lay, style, (_footer_line(grid, style.footer, style.language),))
+    if style.footer is not FooterMode.NONE or style.shows_sky:
+        _draw_footer(image, lay, style, grid, zone)
     if style.bar is not BarMode.NONE:
         _draw_bar(image, lay, grid, style)
 
@@ -567,29 +565,66 @@ def _paste_sideways(
     )
 
 
+def _footer_text(grid: Grid, style: Style, zone: tzinfo, brief: bool) -> str:
+    """What the lane says: the span's own line, the sky's, or the two joined.
+
+    `brief` drops the day's length and its change — the part the reader can most
+    nearly do without, and the first thing given up when the lane runs out.
+    """
+    parts = []
+    if style.footer is not FooterMode.NONE:
+        parts.append(_footer_line(grid, style.footer, style.language))
+    if style.shows_sky and style.sky.draws_sun and style.location:
+        spoken = replace(style, day_length=False) if brief else style
+        parts.append(_sky_line(grid.today, spoken, style.location, zone))
+    return " \u00b7 ".join(parts)
+
+
 def _draw_footer(
-    image: Image.Image, lay: layout_mod.Layout, style: Style, lines: tuple[str, ...]
+    image: Image.Image, lay: layout_mod.Layout, style: Style, grid: Grid, zone: tzinfo
 ) -> None:
-    """Centered block of up to a few lines. Today it holds progress; a quote fits here too."""
-    if not lines:
-        return
+    """The line in the lane between the lock screen buttons, moon at its head.
+
+    The lane is one line wide and no wider, so when the sky rides along there is
+    an order to what goes: first the day's length and its change, then the type
+    size. The two clock times stay, being the part of it nothing else on the
+    screen says.
+    """
     draw = ImageDraw.Draw(image)
     color = style.ramp.footer
+    moon = style.shows_sky and style.sky.draws_moon
 
-    # Shrink to fit the lane between the lock screen buttons rather than run under them.
-    def too_wide(size: int) -> bool:
+    def width(text: str, size: int) -> float:
         font = load_font(FONT_REGULAR, size)
-        return max(font.getlength(line) for line in lines) > lay.footer_max_width
+        span = font.getlength(text) if text else 0.0
+        if not moon:
+            return span
+        return round(size * MOON_RATIO) + (round(size * SKY_GAP) if text else 0) + span
 
     size = lay.footer_font
-    while size > 10 and too_wide(size):
+    text = _footer_text(grid, style, zone, brief=False)
+    if width(text, size) > lay.footer_max_width:
+        text = _footer_text(grid, style, zone, brief=True)
+    while size > 10 and width(text, size) > lay.footer_max_width:
         size -= 1
-    font = load_font(FONT_REGULAR, size)
-    step = round(size * 1.35)
-    top = lay.footer_center_y - step * (len(lines) - 1) / 2
+    if not text and not moon:
+        return
 
-    for index, line in enumerate(lines):
-        draw.text((lay.width / 2, top + index * step), line, font=font, fill=color, anchor="mm")
+    font = load_font(FONT_REGULAR, size)
+    if not moon:
+        # Centred on the lane by the anchor, which is not quite where measuring
+        # the advance width would put it — and is where the line has always sat.
+        draw.text((lay.width / 2, lay.footer_center_y), text, font=font, fill=color, anchor="mm")
+        return
+
+    disc = round(size * MOON_RATIO)
+    gap = round(size * SKY_GAP) if text else 0
+    left = (lay.width - (disc + gap + (font.getlength(text) if text else 0))) / 2
+    _paste_moon(image, style, grid.today, round(left), lay.footer_center_y, disc)
+    if text:
+        draw.text(
+            (left + disc + gap, lay.footer_center_y), text, font=font, fill=color, anchor="lm"
+        )
 
 
 def _wrap(text: str, font: ImageFont.FreeTypeFont, width: float) -> list[str]:
@@ -639,55 +674,6 @@ def _draw_quote(
             fill=mix(color, style.background, 0.75),
             anchor="mm",
         )
-
-
-def _draw_sky(
-    image: Image.Image,
-    lay: layout_mod.Layout,
-    style: Style,
-    today: date,
-    zone: tzinfo,
-) -> None:
-    """The band under the grid: a drawn moon, the day's sun line, or both.
-
-    Set to the grid's own width, so it squares up with the field the way the
-    quote does, and centred in the same slot — the two never share it.
-    """
-    line = (
-        _sky_line(today, style, style.location, zone)
-        if style.sky.draws_sun and style.location
-        else ""
-    )
-    size = lay.sky_font
-    while size > 10 and _sky_width(line, size, style.sky) > lay.grid_width:
-        size -= 1
-
-    font = load_font(FONT_REGULAR, size)
-    moon = round(size * MOON_RATIO) if style.sky.draws_moon else 0
-    gap = round(size * SKY_GAP) if moon and line else 0
-    left = (lay.width - (moon + gap + (font.getlength(line) if line else 0))) / 2
-
-    if moon:
-        _paste_moon(image, style, today, round(left), lay.quote_center_y, moon)
-    if line:
-        ImageDraw.Draw(image).text(
-            (left + moon + gap, lay.quote_center_y),
-            line,
-            font=font,
-            fill=style.ramp.footer,
-            anchor="lm",
-        )
-
-
-def _sky_width(line: str, size: int, mode: SkyMode) -> float:
-    moon = round(size * MOON_RATIO) if mode.draws_moon else 0
-    if not line:
-        return moon
-    return (
-        moon
-        + (round(size * SKY_GAP) if moon else 0)
-        + load_font(FONT_REGULAR, size).getlength(line)
-    )
 
 
 def _sky_line(today: date, style: Style, location: tuple[float, float], zone: tzinfo) -> str:
