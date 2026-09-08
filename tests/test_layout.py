@@ -19,7 +19,7 @@ ROW_COUNTS = [1, 3, 7, 27]
 def test_grid_stays_inside_the_safe_area(device: Device, rows: int):
     lay = L.compute(device.width, device.height, rows, COLUMNS, GROUPS)
     top = L.SAFE_TOP * device.height
-    bottom = L.SAFE_BOTTOM * device.height
+    bottom = L.grid_floor(device.height)
 
     assert lay.grid_y - lay.axis_font >= top, "weekday header intrudes on the clock"
     assert lay.grid_y + lay.grid_height <= bottom
@@ -134,11 +134,19 @@ def test_rows_are_not_stretched_far_past_the_column_step(device: Device, rows: i
     assert lay.pitch_y <= lay.pitch_x * L.STRETCH_CAP + 0.01
 
 
-def test_footer_sits_in_the_lane_between_the_lock_screen_buttons(device: Device):
-    lay = L.compute(device.width, device.height, 7, COLUMNS, GROUPS)
+def test_the_footer_line_clears_what_ios_writes_over_it(device: Device):
+    """The lane between the buttons belongs to the Focus pill and the notifications.
 
-    assert lay.footer_center_y == round(L.CONTROLS_ROW * device.height)
+    Text put there is legible on an empty phone and buried on a used one, so the
+    line sits above the buttons and only the progress rule stays below.
+    """
+    lay = L.compute(device.width, device.height, 7, COLUMNS, GROUPS)
+    buttons_top = L.CONTROLS_ROW * device.height - L.CONTROLS_RADIUS * device.width
+
+    assert lay.footer_center_y == round(L.FOOTER_ROW * device.height)
     assert lay.footer_center_y > lay.grid_y + lay.grid_height, "footer overlaps the grid"
+    assert lay.footer_center_y + lay.footer_font / 2 < buttons_top, "footer reaches the buttons"
+    assert lay.bar_center_y > lay.footer_center_y, "the rule belongs below the words"
     assert lay.footer_max_width == device.width - 2 * round(L.CONTROLS_CLEAR * device.width)
 
 
@@ -209,14 +217,14 @@ def test_a_big_clock_pushes_the_grid_down(device: Device, rows: int):
     standard = L.compute(device.width, device.height, rows, COLUMNS, GROUPS, clock="std")
     large = L.compute(device.width, device.height, rows, COLUMNS, GROUPS, clock="big")
     assert large.grid_y >= L.CLOCK_TOP["big"] * device.height
-    assert large.grid_y + large.grid_height <= L.SAFE_BOTTOM * device.height
+    assert large.grid_y + large.grid_height <= L.grid_floor(device.height)
     # The preset lowers the ceiling and nothing else, so a centred block moves by
     # half of it. Going further is the nudge's job, not the clock's.
     assert large.grid_y > standard.grid_y
 
 
 @pytest.mark.parametrize(("clock", "shift"), [("std", 0), ("std", -6), ("big", 0), ("big", 6)])
-def test_the_quote_sits_midway_between_the_grid_and_the_buttons(
+def test_the_quote_sits_midway_between_the_grid_and_the_footer(
     device: Device, clock: str, shift: int
 ):
     """Its place is defined by the two things around it, so it follows both."""
@@ -224,14 +232,45 @@ def test_the_quote_sits_midway_between_the_grid_and_the_buttons(
         device.width, device.height, 7, COLUMNS, GROUPS, quote=True, clock=clock, shift=shift
     )
     floor = round(
-        L.CONTROLS_ROW * device.height
-        - L.CONTROLS_RADIUS * device.width
+        L.FOOTER_ROW * device.height
+        - max(11, round(L.FOOTER_SIZE * device.height))
         - L.QUOTE_CLEARANCE * device.height
     )
     expected = (lay.grid_y + lay.grid_height + floor) // 2
 
     assert lay.quote_center_y == expected
     assert lay.grid_y + lay.grid_height < lay.quote_center_y < floor
+
+
+def test_the_footer_keeps_its_strip_when_it_is_switched_off(device: Device):
+    """Turning the caption off must not move the picture.
+
+    The dots are what the wallpaper is; a field that grew and dropped every time
+    a line below it was toggled would be a different wallpaper each time.
+    """
+    with_line = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, footer=True)
+    without = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, footer=False)
+
+    assert with_line.grid_y == without.grid_y
+    assert with_line.pitch_y == without.pitch_y
+
+
+def test_the_quote_takes_the_room_the_footer_gives_up(device: Device):
+    """It is measured against the floor, so it drops onto the empty strip."""
+    with_line = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, quote=True, footer=True)
+    without = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, quote=True, footer=False)
+
+    assert without.quote_center_y > with_line.quote_center_y
+    assert without.grid_y == with_line.grid_y, "the field stays put either way"
+
+
+def test_the_quote_is_the_one_thing_that_shrinks_the_field(device: Device):
+    """A tall span fills its band, so anything taking room out of it shows up."""
+    plain = L.compute(device.width, device.height, 27, COLUMNS, GROUPS)
+    quoted = L.compute(device.width, device.height, 27, COLUMNS, GROUPS, quote=True)
+
+    assert quoted.pitch_y < plain.pitch_y
+    assert L.grid_floor(device.height, quote=True) < L.grid_floor(device.height)
 
 
 def test_moving_the_grid_moves_the_quote_with_it(device: Device):
@@ -276,7 +315,7 @@ def test_a_manual_nudge_moves_the_grid_and_stays_in_the_band(device: Device, shi
     nudged = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, shift=shift)
 
     assert nudged.grid_y >= L.SAFE_TOP * device.height
-    assert nudged.grid_y + nudged.grid_height <= L.SAFE_BOTTOM * device.height + 1
+    assert nudged.grid_y + nudged.grid_height <= L.grid_floor(device.height) + 1
     if shift > 0:
         assert nudged.grid_y >= plain.grid_y
     elif shift < 0:
@@ -286,7 +325,7 @@ def test_a_manual_nudge_moves_the_grid_and_stays_in_the_band(device: Device, shi
 def test_a_nudge_that_would_overflow_is_clamped(device: Device):
     """A tall grid has no room to move; the knob must not push it off the band."""
     tall = L.compute(device.width, device.height, 27, COLUMNS, GROUPS, shift=15)
-    assert tall.grid_y + tall.grid_height <= L.SAFE_BOTTOM * device.height + 1
+    assert tall.grid_y + tall.grid_height <= L.grid_floor(device.height) + 1
 
 
 @pytest.mark.parametrize("rows", [3, 7])
@@ -309,12 +348,12 @@ def test_a_tall_grid_shrinks_to_fit_a_lower_ceiling(device: Device):
     large = L.compute(device.width, device.height, 27, COLUMNS, GROUPS, clock="big")
 
     assert large.grid_height < standard.grid_height
-    assert large.grid_y + large.grid_height <= L.SAFE_BOTTOM * device.height
+    assert large.grid_y + large.grid_height <= L.grid_floor(device.height)
 
 
 def test_a_short_grid_does_not_slide_onto_the_buttons(device: Device):
     """month + a big clock used to drop a three-row grid almost onto the footer."""
     lay = L.compute(device.width, device.height, 3, COLUMNS, GROUPS, clock="big")
-    below = L.SAFE_BOTTOM * device.height - (lay.grid_y + lay.grid_height)
+    below = L.grid_floor(device.height) - (lay.grid_y + lay.grid_height)
 
     assert below > 0.05 * device.height

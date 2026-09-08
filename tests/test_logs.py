@@ -101,3 +101,39 @@ def test_the_domain_defaults_to_accepting_anything():
     from wallcal.app import ALLOWED_HOSTS
 
     assert ALLOWED_HOSTS == ["*"]
+
+
+def test_a_coordinate_is_blunted_in_the_log(caplog: pytest.LogCaptureFixture):
+    """The image keeps the two decimals it was asked for; the log keeps a town."""
+    caplog.set_level(logging.INFO, logger=logs.LOGGER)
+    with TestClient(app) as client:
+        caplog.clear()
+        client.get(f"/w/span.png?{SPAN}&sky=both&lat=51.51&lon=-0.13")
+
+    query = only(caplog)["query"]
+    assert isinstance(query, str)
+    assert "lat=51.5" in query and "lat=51.51" not in query
+    assert "lon=-0.1" in query and "lon=-0.13" not in query
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "lat=51.5074&lon=-0.1277",
+        "lat=+51.5074&lon=-0.1277",  # a literal plus is a space once decoded
+        "lat=51%2E5074&lon=-0%2E1277",  # ...and an encoded point hides itself
+    ],
+)
+def test_a_coordinate_is_blunted_however_it_was_written(
+    caplog: pytest.LogCaptureFixture, pair: str
+):
+    """The endpoint takes all three spellings, so the log has to blunt all three."""
+    caplog.set_level(logging.INFO, logger=logs.LOGGER)
+    with TestClient(app) as client:
+        caplog.clear()
+        assert client.get(f"/w/span.png?{SPAN}&sky=sun&{pair}").status_code == 200
+
+    query = only(caplog)["query"]
+    assert isinstance(query, str)
+    assert "lat=51.5&lon=-0.1" in query
+    assert "5074" not in query and "1277" not in query

@@ -2,27 +2,39 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 from datetime import date
+from zoneinfo import ZoneInfo
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from wallcal import layout as L
 from wallcal.devices import Device
+from wallcal.fonts import FONT_REGULAR, load_font
 from wallcal.grid import CellState, build_span
 from wallcal.palette import lerp, luminance
 from wallcal.render import (
+    MOON_RATIO,
+    MOON_STEPS,
+    SKY_GAP,
+    BarMode,
     FooterMode,
     HeaderMode,
+    Production,
     Shape,
     ShapeError,
     Style,
+    _footer_text,
+    _moon_masks,
+    _sky_line,
     parse_shape,
     render_span,
     to_png,
 )
+from wallcal.sky import SkyMode
 
 from .conftest import SPAN_END, SPAN_START, TODAY
 
@@ -63,9 +75,10 @@ def test_clock_area_is_left_untouched(device: Device, clock: str):
 
 
 def test_no_dots_below_the_grid_band(device: Device):
-    style = Style(footer=FooterMode.NONE, bar=False)
+    style = Style(footer=FooterMode.NONE, bar=BarMode.NONE)
     image = render_span(grid_of(), device.width, device.height, style)
-    bottom = image.crop((0, round(L.SAFE_BOTTOM * device.height) + 1, device.width, device.height))
+    floor = L.grid_floor(device.height)
+    bottom = image.crop((0, floor + 1, device.width, device.height))
     assert bottom.getcolors(maxcolors=4) == [(bottom.width * bottom.height, style.background)]
 
 
@@ -349,13 +362,13 @@ def test_the_bar_fills_with_the_span(device: Device):
         grid_of(date(2026, 9, 1), date(2027, 8, 31)),
         device.width,
         device.height,
-        Style(bar=True),
+        Style(bar=BarMode.SPAN),
     )
     late = render_span(
         grid_of(date(2025, 9, 1), date(2026, 9, 30)),
         device.width,
         device.height,
-        Style(bar=True),
+        Style(bar=BarMode.SPAN),
     )
 
     def filled_width(image: Image.Image) -> int:
@@ -513,3 +526,390 @@ def test_counting_puts_a_number_over_the_end_of_each_week(device: Device):
 
     assert ink_above(6) > 0 and ink_above(13) > 0  # ends of both weeks
     assert ink_above(0) == 0 and ink_above(3) == 0  # nothing over the other days
+
+
+# The production calendar: the band stops being two fixed columns and becomes the
+# union of whatever days are not worked.
+
+# Captured from the drawing before the band learned about production calendars.
+# The union has to reduce to exactly those shapes when nothing moves the days
+# off, and a hash is the only assertion that can say "exactly".
+# Digests of the band as the column-drawing code left it, carried across the
+# rewrite that turned it into a union of cells: with no production calendar the
+# new code draws the old picture. Two entries are marked, and are the exception
+# that proves it — with Sunday starting the week and no gap between weeks, the
+# old code left a two-pixel notch where Saturday met Sunday across the boundary.
+# Closing that is the whole point of the rewrite, so those two are new pictures
+# on purpose. Every other one of the forty-two is byte-identical.
+BAND_GOLDEN = {
+    (0, True, 1): "5dc3b99f78413e8a",
+    (0, True, 2): "6850c38526da92f0",
+    (0, True, 4): "7908bbdb8dc1615d",
+    (0, False, 1): "5dc3b99f78413e8a",
+    (0, False, 2): "3e27864adb44f7cc",
+    (0, False, 4): "e3a877b5447f1e8b",
+    (1, True, 1): "e9d7664812dbada5",
+    (1, True, 2): "9818b36a74850c53",
+    (1, True, 4): "5de4e7c3cf7b090f",
+    (1, False, 1): "e9d7664812dbada5",
+    (1, False, 2): "2fb8538210abc3cb",
+    (1, False, 4): "2578607015defd52",
+    (2, True, 1): "d7100c2362384fa3",
+    (2, True, 2): "79996776858c888f",
+    (2, True, 4): "773e88aff29afb2c",
+    (2, False, 1): "d7100c2362384fa3",
+    (2, False, 2): "c08ba1eaecba6019",
+    (2, False, 4): "c6fcdade1d1add63",
+    (3, True, 1): "0137c876caf62b81",
+    (3, True, 2): "44049cb65cd49174",
+    (3, True, 4): "04ffd96ae1d98e7d",
+    (3, False, 1): "0137c876caf62b81",
+    (3, False, 2): "acf46c43a1b59983",
+    (3, False, 4): "dd84dc2cc1a45489",
+    (4, True, 1): "97dd01cee35f7606",
+    (4, True, 2): "a86d1bfd9d011a89",
+    (4, True, 4): "ef21ff63e01ad27b",
+    (4, False, 1): "97dd01cee35f7606",
+    (4, False, 2): "c399e72f99e98513",
+    (4, False, 4): "b91beb4b78fd71dd",
+    (5, True, 1): "33cd4ff2a0c95059",
+    (5, True, 2): "d75baec2c7162890",
+    (5, True, 4): "c390556803ed026b",
+    (5, False, 1): "33cd4ff2a0c95059",
+    (5, False, 2): "b617644fc910a884",
+    (5, False, 4): "a799289727ba4549",
+    (6, True, 1): "b09ac533b85db718",
+    (6, True, 2): "7491c4a82aef591c",
+    (6, True, 4): "b9684601fc81969a",
+    (6, False, 1): "b09ac533b85db718",
+    (6, False, 2): "2aedbe7de1811382",  # the notch, now closed
+    (6, False, 4): "10645a072fe80fd1",  # the notch, now closed
+}
+
+
+@pytest.mark.parametrize(("first_weekday", "split", "groups"), sorted(BAND_GOLDEN))
+def test_no_production_calendar_draws_exactly_what_it_always_did(
+    first_weekday: int, split: bool, groups: int
+):
+    grid = build_span(
+        SPAN_START, SPAN_END, TODAY, weeks_per_row=groups, first_weekday=first_weekday
+    )
+    style = Style(first_weekday=first_weekday, split=split)
+    payload = to_png(render_span(grid, 590, 1278, style))
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    assert digest == BAND_GOLDEN[first_weekday, split, groups]
+
+
+def ru_span(start: date, end: date, today: date):
+    """A span drawn against the Russian calendar, with the geometry to probe it."""
+    grid = build_span(start, end, today)
+    style = Style(production=Production.RU, marks=False, weekends=True)
+    lay = L.compute(1179, 2556, grid.rows, grid.columns, grid.columns // 7)
+    return grid, lay, style, render_span(grid, 1179, 2556, style)
+
+
+# June 2025: Thursday the 12th is Russia Day and Friday the 13th was moved there
+# from March, so Thursday through Sunday is one run of days nobody works.
+JUNE = (date(2025, 6, 1), date(2025, 6, 30), date(2025, 6, 15))
+JUNE_ROW = 1  # 9-22 June, the row that holds the run
+
+
+def test_a_non_working_friday_joins_the_weekend_band():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    # Right on the seam between Friday and Saturday, along the band's top edge:
+    # two rounded rectangles would have pinched the colour away here.
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 4)[2], top)) == style.ramp.weekend
+
+
+def test_two_adjacent_non_working_weekdays_merge():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 3)[2], top)) == style.ramp.weekend
+
+
+def test_the_outer_corners_of_a_merged_band_stay_rounded():
+    _, lay, style, image = ru_span(*JUNE)
+    top = lay.cell_box(JUNE_ROW, 0)[1]
+
+    # Thursday's top-left is where the shape actually begins, so it rounds.
+    assert image.getpixel((lay.cell_box(JUNE_ROW, 3)[0], top)) == style.background
+
+
+def test_a_wider_run_does_not_scallop_the_row_above_it():
+    """The weekend pill runs on through June's longer run instead of pinching at it."""
+    _, lay, style, image = ru_span(*JUNE)
+    seam = lay.cell_box(JUNE_ROW, 0)[1]
+    left = lay.cell_box(JUNE_ROW, 5)[0]  # Saturday's left edge, shared by both rows
+
+    assert image.getpixel((left, seam - 1)) == style.ramp.weekend
+    assert image.getpixel((left, seam)) == style.ramp.weekend
+
+
+# November 2025: the day off for Saturday the 1st was moved to Monday the 3rd,
+# so the Saturday is worked and Sunday-Monday-Tuesday is a run of three.
+NOVEMBER = (date(2025, 11, 1), date(2025, 11, 30), date(2025, 11, 10))
+
+
+def above_dot(image: Image.Image, lay: L.Layout, row: int, col: int):
+    """Between the dot and the top of its cell - where only a band can show."""
+    cx, cy = lay.cell_center(row, col)
+    return image.getpixel((round(cx), round(cy - lay.dot / 2) - 2))
+
+
+def test_a_working_saturday_loses_its_band():
+    grid, lay, style, image = ru_span(*NOVEMBER)
+    saturday = next(c for c in grid.cells if c.day == date(2025, 11, 1))
+
+    assert above_dot(image, lay, saturday.row, saturday.col) == style.background
+    plain = render_span(grid, 1179, 2556, Style(marks=False))
+    assert above_dot(plain, lay, saturday.row, saturday.col) == style.ramp.weekend
+
+
+def test_a_transferred_monday_and_tuesday_are_one_band():
+    grid, lay, style, image = ru_span(*NOVEMBER)
+    monday = next(c for c in grid.cells if c.day == date(2025, 11, 3))
+    top = lay.cell_box(monday.row, 0)[1]
+
+    assert above_dot(image, lay, monday.row, monday.col) == style.ramp.weekend
+    assert image.getpixel((lay.cell_box(monday.row, monday.col)[2], top)) == style.ramp.weekend
+
+
+def test_the_band_stops_at_the_gap_between_the_weeks():
+    """Sunday and Monday are both days off here, and the gap still separates them.
+
+    The gap is what makes a row read as two weeks rather than fourteen days; a
+    band reaching over it would be the only mark in the drawing that denies that.
+    """
+    _, lay, style, image = ru_span(*NOVEMBER)
+    sunday_row, sunday_col = 0, 6  # 2 November, the last day of the row's first week
+    _, top, right, bottom = lay.cell_box(sunday_row, sunday_col)
+    middle = (top + bottom) // 2
+
+    assert lay.group_gap > 2, "no gap to test"
+    for x in range(right + 1, lay.cell_box(sunday_row, sunday_col + 1)[0]):
+        assert image.getpixel((x, middle)) == style.background
+
+
+def test_a_run_crosses_a_week_boundary_only_when_no_gap_separates_them():
+    """With sp=0 the weeks are flush, and a seam there is a notch, not a break."""
+    # 2 November 2025 is a Sunday and the 3rd is the day off moved off Saturday
+    # the 1st, so with two weeks to a row they are the last and first columns of
+    # the two halves.
+    grid = build_span(date(2025, 11, 1), date(2025, 11, 30), date(2025, 11, 10))
+    by_day = {cell.day: cell for cell in grid.cells}
+    sunday, monday = by_day[date(2025, 11, 2)], by_day[date(2025, 11, 3)]
+    assert sunday.row == monday.row and monday.col % 7 == 0, "the fixture moved"
+
+    for split, wanted in ((False, 0), (True, None)):
+        style = Style(production=Production.RU, marks=False, split=split)
+        image = render_span(grid, 1179, 2556, style)
+        lay = L.compute(1179, 2556, grid.rows, grid.columns, grid.columns // 7, split=split)
+        left = lay.cell_box(sunday.row, sunday.col)
+        right = lay.cell_box(monday.row, monday.col)
+        # Up where the corners curve: a notch shows here before it shows at the
+        # widest part of the band.
+        y = left[1] + (left[3] - left[1]) // 4
+        bare = sum(
+            image.getpixel((x, y)) == style.background for x in range(left[2] - 1, right[0] + 2)
+        )
+        if wanted is None:
+            assert bare == lay.group_gap + 2, "the gap should be the whole of the break"
+        else:
+            assert bare == wanted, "flush weeks must leave no notch"
+
+
+def band_bounds(image: Image.Image, lay: L.Layout) -> tuple[int, int, int, int] | None:
+    """The ink between the grid's last row and the footer's own strip."""
+    top = lay.grid_y + lay.grid_height
+    strip = image.crop((0, top, lay.width, L.quote_floor(lay.height)))
+    flat = Image.new("RGB", strip.size, Style().background)
+    found = ImageChops.difference(strip, flat).getbbox()
+    if found is None:
+        return None
+    return found[0], found[1] + top, found[2], found[3] + top
+
+
+def sky_layout(grid, device: Device, style: Style) -> L.Layout:
+    return L.compute(
+        device.width,
+        device.height,
+        grid.rows,
+        grid.columns,
+        grid.columns // 7,
+        quote=style.shows_band,
+        clock=style.clock,
+    )
+
+
+def footer_ink(image: Image.Image, lay: L.Layout, style: Style) -> tuple[int, int, int, int] | None:
+    """The ink in the lane between the lock screen buttons."""
+    reach = lay.footer_font * 2
+    top = lay.footer_center_y - reach
+    strip = image.crop((0, top, lay.width, lay.footer_center_y + reach))
+    flat = Image.new("RGB", strip.size, style.background)
+    found = ImageChops.difference(strip, flat).getbbox()
+    if found is None:
+        return None
+    return found[0], found[1] + top, found[2], found[3] + top
+
+
+def test_the_moon_rides_the_footer_line(device: Device):
+    """It sits in the lane the footer already owns, sized to that line's type."""
+    grid = grid_of()
+    style = Style(sky=SkyMode.MOON, footer=FooterMode.NONE, bar=BarMode.NONE)
+    lay = sky_layout(grid, device, style)
+    image = render_span(grid, device.width, device.height, style)
+
+    bounds = footer_ink(image, lay, style)
+    assert bounds is not None, "nothing was drawn in the lane"
+    left, top, right, bottom = bounds
+    size = round(lay.footer_font * MOON_RATIO)
+
+    assert bottom - top == pytest.approx(size, abs=2)
+    assert right - left == pytest.approx(size, abs=2)
+    assert (top + bottom) / 2 == pytest.approx(lay.footer_center_y, abs=2)
+    assert (left + right) / 2 == pytest.approx(lay.width / 2, abs=2)
+
+
+def test_the_sky_costs_the_field_nothing(device: Device):
+    """It moved into the lane precisely so the dots stop paying for it."""
+    grid = grid_of(date(2026, 1, 1), date(2026, 12, 31))  # the span that fills a band
+    bare, lit = Style(), Style(sky=SkyMode.MOON)
+
+    assert sky_layout(grid, device, bare) == sky_layout(grid, device, lit)
+
+    lay = sky_layout(grid, device, bare)
+    plain = render_span(grid, device.width, device.height, bare)
+    drawn = render_span(grid, device.width, device.height, lit)
+    for cell in grid.cells:
+        if cell.state is not CellState.OUTSIDE:
+            assert pixel_at_cell(plain, lay, cell) == pixel_at_cell(drawn, lay, cell)
+
+
+def test_only_the_quote_reserves_the_band(device: Device):
+    grid = grid_of(date(2026, 1, 1), date(2026, 12, 31))
+    bare = sky_layout(grid, device, Style())
+    lit = sky_layout(grid, device, Style(sky=SkyMode.MOON))
+    written = sky_layout(grid, device, Style(quote=True))
+
+    assert bare.quote_center_y == lit.quote_center_y == 0
+    assert written.quote_center_y > written.grid_y + written.grid_height
+    assert written.pitch_y < bare.pitch_y
+
+
+def test_the_lane_gives_up_the_day_length_before_it_gives_up_size():
+    """The two clock times are what nothing else on the screen says, so they stay."""
+    grid = grid_of()
+    zone = ZoneInfo("Europe/Moscow")
+    moscow = (55.75, 37.62)
+
+    alone = Style(footer=FooterMode.NONE, sky=SkyMode.BOTH, location=moscow)
+    beside = Style(footer=FooterMode.WEEK, sky=SkyMode.BOTH, location=moscow)
+
+    full = _footer_text(grid, alone, zone, brief=False)
+    assert "05:43" in full and "19:10" in full  # the day's two ends
+    assert "13:27" in full  # its length
+    assert "\u2212" in full or "+" in full  # and how that changed overnight
+
+    # Beside a footer line the lane cannot hold all of it, and the length goes.
+    short = _footer_text(grid, beside, zone, brief=True)
+    assert "05:43" in short and "19:10" in short
+    assert "\u2212" not in short and "13:27" not in short
+
+
+def test_nothing_in_the_lane_is_ever_shrunk_to_fit_on_a_shipped_screen(device: Device):
+    """The give-up rule exists so the type size never has to move. Check it does not."""
+    grid = grid_of()
+    zone = ZoneInfo("Europe/Moscow")
+    for footer in (FooterMode.WEEK, FooterMode.PERCENT, FooterMode.NONE):
+        style = Style(footer=footer, sky=SkyMode.BOTH, location=(55.75, 37.62))
+        lay = sky_layout(grid, device, style)
+        font = load_font(FONT_REGULAR, lay.footer_font)
+        text = _footer_text(grid, style, zone, brief=False)
+        if font.getlength(text) > lay.footer_max_width:
+            text = _footer_text(grid, style, zone, brief=True)
+        moon = round(lay.footer_font * MOON_RATIO)
+        gap = round(lay.footer_font * SKY_GAP) if text else 0
+        assert moon + gap + font.getlength(text) <= lay.footer_max_width
+
+
+def test_the_sky_and_a_quote_no_longer_compete():
+    """They are in two different places now, so neither has to outrank the other."""
+    both = Style(sky=SkyMode.MOON, quote=True)
+    assert both.shows_sky and both.shows_quote
+
+    written = Style(sky=SkyMode.MOON, quote_text="mine")
+    assert written.shows_sky and written.shows_quote
+
+
+def test_the_rotation_still_wins_when_no_sky_was_asked_for():
+    assert Style(quote=True).shows_quote
+    assert Style(quote=True, sky=SkyMode.NONE).shows_quote
+
+
+@pytest.mark.parametrize(
+    ("fraction", "expected"),
+    [(0.0, "none"), (0.5, "half"), (1.0, "all")],
+)
+def test_the_terminator_walks_the_disc(fraction: float, expected: str):
+    disc, lit = _moon_masks(64, round(fraction * MOON_STEPS), True)
+    whole = sum(disc.get_flattened_data())
+    part = sum(lit.get_flattened_data())
+
+    if expected == "none":
+        assert part == 0
+    elif expected == "all":
+        assert part == pytest.approx(whole, rel=0.001)
+    else:
+        assert part == pytest.approx(whole / 2, rel=0.02)
+
+
+def test_a_gibbous_moon_bulges_past_the_half_disc():
+    """The construction the folk one cannot do: more than half lit, and not a disc."""
+    disc, half = _moon_masks(64, MOON_STEPS // 2, True)
+    _, gibbous = _moon_masks(64, round(0.75 * MOON_STEPS), True)
+
+    def ink(mask: Image.Image) -> int:
+        return sum(mask.get_flattened_data())
+
+    assert ink(half) < ink(gibbous) < ink(disc)
+
+
+def test_a_waxing_moon_is_lit_on_the_right():
+    """Cusps to the left, as seen from the northern hemisphere; mirrored below it."""
+    _, waxing = _moon_masks(64, round(0.25 * MOON_STEPS), True)
+    _, waning = _moon_masks(64, round(0.25 * MOON_STEPS), False)
+
+    def weight(mask: Image.Image, box: tuple[int, int, int, int]) -> int:
+        return sum(mask.crop(box).get_flattened_data())
+
+    left, right = (0, 0, 32, 64), (32, 0, 64, 64)
+    assert weight(waxing, right) > weight(waxing, left)
+    assert weight(waning, left) > weight(waning, right)
+
+
+def sun_line(day: date, dl: bool, zone: str, place: tuple[float, float]) -> str:
+    style = Style(sky=SkyMode.SUN, location=place, day_length=dl)
+    return _sky_line(day, style, place, ZoneInfo(zone))
+
+
+def test_the_day_length_can_be_dropped_from_the_line():
+    line = sun_line(date(2026, 9, 8), False, "Europe/London", (51.51, -0.13))
+    assert line == "06:24 – 19:31"
+
+
+def test_a_day_running_past_midnight_keeps_its_length():
+    """`01:31 – 00:02` reads as a 23-minute day; only the length says otherwise.
+
+    The fortnight either side of a polar spell has the sun setting after local
+    midnight, so the pair alone is backwards. The length goes in even when `dl`
+    asked for no numbers — it is not a statistic there, it is the disambiguator.
+    """
+    tromso = (69.65, 18.96)
+    wrapped = sun_line(date(2026, 5, 16), False, "Europe/Oslo", tromso)
+
+    assert wrapped.startswith("01:31 – 00:02")
+    assert wrapped.endswith("· 22:31"), wrapped

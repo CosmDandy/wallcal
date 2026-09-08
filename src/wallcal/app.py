@@ -27,21 +27,27 @@ from .devices import DeviceError
 from .devices import resolve as resolve_size
 from .grid import DEFAULT_WEEKS_PER_ROW, GridError, WeekNumbering
 from .layout import ClockError, LabelError, LayoutError, parse_clock, parse_label_side
+from .markers import MarkerError, TooManyMarkers, parse_markers
 from .modes import ModeError, ModeNotImplemented, Params, build
 from .palette import ColorError, InkError, ThemeError, parse_color, parse_ink, parse_theme
 from .preview import overlay
 from .quotes import rotation
 from .render import (
+    BarError,
     FooterError,
     HeaderError,
+    ProductionError,
     ShapeError,
     Style,
+    parse_bar,
     parse_footer,
     parse_header,
+    parse_production,
     parse_shape,
     render_span,
     to_png,
 )
+from .sky import SkyError, parse_location, parse_sky
 from .strings import LanguageError, parse_language
 
 DEFAULT_TZ = os.environ.get("WALLCAL_TZ", "UTC")
@@ -204,7 +210,9 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         str, Query(alias="hdr", description="top axis: days, count or none")
     ] = "days",
     footer: Annotated[str, Query(alias="ft", description="pct, left, week or none")] = "pct",
-    bar: Annotated[bool, Query(alias="br", description="progress rule under the footer")] = True,
+    bar: Annotated[
+        str, Query(alias="br", description="progress rule: span, year, quarter, month, none")
+    ] = "1",
     fade: Annotated[bool, Query(alias="fd", description="fade older past days")] = True,
     month_breaks: Annotated[
         bool, Query(alias="mb", description="start every month on a fresh row")
@@ -215,7 +223,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     ] = "left",
     clock: Annotated[
         str, Query(alias="ck", description="room for the lock screen clock: std or big")
-    ] = "std",
+    ] = "big",
     shift: Annotated[
         int, Query(alias="sh", ge=-15, le=15, description="nudge the grid, percent of height")
     ] = 0,
@@ -224,9 +232,14 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     first_weekday: Annotated[
         int, Query(alias="wd", ge=0, le=6, description="0 Monday .. 6 Sunday")
     ] = 0,
-    weekends: Annotated[bool, Query(alias="we", description="band behind Sat and Sun")] = True,
+    weekends: Annotated[bool, Query(alias="we", description="band behind days off")] = True,
+    production: Annotated[str, Query(alias="pc", description="production calendar: 0 or ru")] = "0",
     marks: Annotated[bool, Query(alias="mk", description="tint the last day of a month")] = True,
     month_mark: Annotated[str, Query(alias="mc", description="month-end tint")] = "orange",
+    markers: Annotated[
+        list[str] | None,
+        Query(alias="m", description="tint a rule's days: <rule>@<colour>[@<label>]"),
+    ] = None,
     quote: Annotated[
         bool, Query(alias="q", description="a line for the day under the grid")
     ] = False,
@@ -234,6 +247,18 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         str, Query(alias="qt", max_length=240, description="your own line, instead of the rotation")
     ] = "",
     quote_author: Annotated[str, Query(alias="qa", max_length=60, description="who said it")] = "",
+    sky: Annotated[
+        str, Query(alias="sky", description="band under the grid: none, moon, sun or both")
+    ] = "none",
+    lat: Annotated[
+        float | None, Query(ge=-90, le=90, description="latitude, kept to two decimals")
+    ] = None,
+    lon: Annotated[
+        float | None, Query(ge=-180, le=180, description="longitude, kept to two decimals")
+    ] = None,
+    day_length: Annotated[
+        bool, Query(alias="dl", description="day length and the change from yesterday")
+    ] = True,
     numbering: Annotated[
         str, Query(alias="wk", description="iso week number, or n from the span start")
     ] = "iso",
@@ -248,8 +273,18 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     zone = _zone(tz or DEFAULT_TZ)
     now = datetime.now(zone)
 
+    # Too many markers is a 422 rather than a 400: the URL is well formed and
+    # every marker in it is valid, there are just more than one link may carry.
+    try:
+        rules = parse_markers(markers)
+    except TooManyMarkers as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (MarkerError, ColorError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     try:
         size = resolve_size(device, width, height)
+        sky_mode = parse_sky(sky)
         style = Style(
             background=parse_color(background) if background else parse_theme(theme),
             dot=parse_color(dot) if dot else None,
@@ -258,7 +293,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             axes=axes,
             header=parse_header(header),
             footer=parse_footer(footer),
-            bar=bar,
+            bar=parse_bar(bar),
             fade=fade,
             split=split,
             labels=parse_label_side(labels),
@@ -268,17 +303,23 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             language=parse_language(language),
             first_weekday=first_weekday,
             weekends=weekends,
+            production=parse_production(production),
             marks=marks,
             month_mark=parse_color(month_mark),
+            markers=rules,
             quote=quote,
             quote_text=quote_text,
             quote_author=quote_author,
+            sky=sky_mode,
+            location=parse_location(sky_mode, lat, lon),
+            day_length=day_length,
         )
         week_numbering = WeekNumbering(numbering.strip().lower())
     except (
         DeviceError,
         ColorError,
         ShapeError,
+        BarError,
         FooterError,
         HeaderError,
         LabelError,
@@ -286,6 +327,8 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         ClockError,
         InkError,
         LanguageError,
+        ProductionError,
+        SkyError,
     ) as exc:
         raise HTTPException(400, str(exc)) from exc
     except ValueError as exc:
@@ -311,8 +354,12 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     except (ModeError, GridError, ValueError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    # The zone is in there for the sun line alone: it is the one thing drawn on
+    # a local clock, so two zones on the same date are two different images.
+    # `Cache-Control` is public, and a shared cache holding one ETag for both
+    # would be entitled to hand one of them the other's picture.
     fingerprint = hashlib.sha256(
-        f"{mode}|{size}|{style}|{grid.start}|{grid.end}|{grid.today}"
+        f"{mode}|{size}|{style}|{zone.key}|{grid.start}|{grid.end}|{grid.today}"
         f"|{grid.rows}|{grid.columns}|{grid.week_labels}|{preview}".encode()
     ).hexdigest()[:32]
     etag = f'"{fingerprint}"'
@@ -329,7 +376,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
 
     try:
         with render_slot():
-            image = render_span(grid, size[0], size[1], style)
+            image = render_span(grid, size[0], size[1], style, zone)
             if preview:
                 overlay(image, style, now.date())
             payload = to_png(image)

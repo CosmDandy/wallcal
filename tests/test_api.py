@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from wallcal.app import app, wallpaper
-from wallcal.devices import DEVICES
+from wallcal.devices import DEFAULT_DEVICE, DEVICES, MAX_SIDE, MIN_SIDE
 
 SPAN = "f=2026-09-01&t=2026-11-30"
 
@@ -26,19 +26,32 @@ def test_health(client: TestClient):
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
-def test_index_serves_the_builder_with_every_device(client: TestClient):
+def test_index_serves_the_builder(client: TestClient):
     response = client.get("/")
     body = response.text
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    for key in DEVICES:
-        assert f'"{key}"' in body, f"{key} missing from the device selector"
     for mode in ("span", "year", "quarter", "month"):
         assert f'data-mode="{mode}"' in body
     # Every query parameter the API takes should be reachable from the page.
-    for knob in ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "mk", "th", "ft", "br", "pv"):
+    knobs = ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "pc", "mk", "th", "ft", "br", "pv")
+    for knob in (*knobs, "sky", "dl"):
         assert f'data-key="{knob}"' in body
+
+
+def test_the_builder_takes_a_screen_in_pixels(client: TestClient):
+    """Three presets covered three phones; the API has always taken w and h.
+
+    The page starts on the API's own default, so a builder left alone produces a
+    link with no size in it at all.
+    """
+    body = client.get("/").text
+    default = DEVICES[DEFAULT_DEVICE]
+
+    assert 'id="pw"' in body and 'id="ph"' in body
+    assert f"{{ w: {default.width}, h: {default.height} }}" in body
+    assert f'min="{MIN_SIDE}" max="{MAX_SIDE}"' in body
 
 
 def test_the_builder_brings_its_own_calendar(client: TestClient):
@@ -52,7 +65,7 @@ def test_the_builder_brings_its_own_calendar(client: TestClient):
     for key in ("from", "to"):
         assert f'id="{key}-btn"' in body
         assert f'<input type="date" id="{key}" hidden>' in body
-    assert "cal-day" in body   # the grid the page draws itself
+    assert "cal-day" in body  # the grid the page draws itself
     assert "cal-pick" in body  # and the months and years behind the title
 
 
@@ -151,6 +164,12 @@ def test_named_and_hex_colors_both_work(client: TestClient):
         "f=2026-09-01&t=2026-11-30&ink=neon",
         "f=2026-09-01&t=2026-11-30&lang=de",
         "f=2026-09-01&t=2026-11-30&hdr=roman",
+        "f=2026-09-01&t=2026-11-30&pc=de",
+        "f=2026-09-01&t=2026-11-30&pc=1",
+        "f=2026-09-01&t=2026-11-30&sky=stars",
+        "f=2026-09-01&t=2026-11-30&sky=sun",  # no coordinates at all
+        "f=2026-09-01&t=2026-11-30&sky=both&lat=51.5",  # half a pair
+        "f=2026-09-01&t=2026-11-30&sky=sun&lon=-0.13",
         "f=yesterday&t=2026-11-30",
         "f=2026-09-01&t=90x",
     ],
@@ -385,6 +404,22 @@ def test_backdrops_can_be_switched_off(client: TestClient, query: str):
     assert plain.content != full.content
 
 
+def test_the_russian_production_calendar_redraws_the_band(client: TestClient):
+    """A span holding 12 June and the Friday moved next to it, so the band has to change."""
+    span = "f=2025-06-01&t=2025-06-30"
+    plain = client.get(f"/w/span.png?{span}")
+    russian = client.get(f"/w/span.png?{span}&pc=ru")
+
+    assert russian.status_code == 200
+    assert russian.content != plain.content
+    assert russian.headers["etag"] != plain.headers["etag"]
+
+
+def test_the_production_calendar_is_off_by_default(client: TestClient):
+    explicit = client.get(f"/w/span.png?{SPAN}&pc=0")
+    assert explicit.content == client.get(f"/w/span.png?{SPAN}").content
+
+
 def test_preview_draws_the_lock_screen_over_the_wallpaper(client: TestClient):
     wallpaper = client.get(f"/w/span.png?{SPAN}")
     preview = client.get(f"/w/span.png?{SPAN}&pv=1")
@@ -512,3 +547,57 @@ def test_a_relative_end_gives_a_link_that_outlives_its_span(client: TestClient):
 
 def test_unknown_mode_is_rejected(client: TestClient):
     assert client.get(f"/w/moon.png?{SPAN}").status_code == 400
+
+
+SUN = f"{SPAN}&sky=both&lat=51.51&lon=-0.13"
+
+
+@pytest.mark.parametrize("mode", ["none", "moon", "sun", "both"])
+def test_every_sky_mode_is_served(client: TestClient, mode: str):
+    query = f"{SPAN}&sky={mode}" + ("&lat=51.51&lon=-0.13" if mode in ("sun", "both") else "")
+    assert client.get(f"/w/span.png?{query}").status_code == 200
+
+
+@pytest.mark.parametrize("pair", ["lat=91&lon=0", "lat=0&lon=181"])
+def test_a_coordinate_off_the_globe_is_refused(client: TestClient, pair: str):
+    """A bounded knob, so FastAPI turns it down before the handler runs."""
+    assert client.get(f"/w/span.png?{SPAN}&sky=sun&{pair}").status_code == 422
+
+
+def test_the_moon_asks_for_no_location(client: TestClient):
+    """The illuminated fraction is the same for everyone, so it is the honest entry point."""
+    assert client.get(f"/w/span.png?{SPAN}&sky=moon").status_code == 200
+
+
+def test_the_sky_changes_the_image(client: TestClient):
+    bare = client.get(f"/w/span.png?{SPAN}").headers["etag"]
+    moon = client.get(f"/w/span.png?{SPAN}&sky=moon").headers["etag"]
+
+    assert bare != moon
+
+
+def test_a_coarser_coordinate_is_the_same_image(client: TestClient):
+    """Two decimals is what the parser keeps, so a sharper link renders the same picture."""
+    coarse = client.get(f"/w/span.png?{SPAN}&sky=sun&lat=51.51&lon=-0.13").headers["etag"]
+    sharp = client.get(f"/w/span.png?{SPAN}&sky=sun&lat=51.50735&lon=-0.12776").headers["etag"]
+
+    assert coarse == sharp
+
+
+def test_the_zone_is_part_of_the_etag_once_a_clock_time_is_drawn(client: TestClient):
+    """Same date, same coordinates, different wall clock — and Cache-Control is public.
+
+    Without the zone in the fingerprint a shared cache would be entitled to hand
+    one phone the other's picture.
+    """
+    london = client.get(f"/w/span.png?{SUN}&tz=Europe/London").headers["etag"]
+    moscow = client.get(f"/w/span.png?{SUN}&tz=Europe/Moscow").headers["etag"]
+
+    assert london != moscow
+
+
+def test_the_day_length_can_be_dropped(client: TestClient):
+    assert (
+        client.get(f"/w/span.png?{SUN}&dl=0").headers["etag"]
+        != client.get(f"/w/span.png?{SUN}").headers["etag"]
+    )

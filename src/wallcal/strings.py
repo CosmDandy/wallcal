@@ -22,6 +22,15 @@ MONTHS: dict[str, tuple[str, ...]] = {
 }  # fmt: skip
 
 
+# Above the Arctic Circle there is no rise and no set to print, for months at a
+# time. Everything else on the sun line is digits and punctuation, so this is
+# the only wording the band needs.
+POLAR: dict[str, tuple[str, ...]] = {
+    "en": ("Midnight sun", "Polar night"),
+    "ru": ("Полярный день", "Полярная ночь"),
+}
+
+
 class LanguageError(ValueError):
     """Raised for a language we have no wording for."""
 
@@ -39,6 +48,10 @@ def weekday(language: str, index: int) -> str:
 
 def month(language: str, number: int) -> str:
     return MONTHS[language][number - 1]
+
+
+def polar(language: str, sun_up: bool) -> str:
+    return POLAR[language][0 if sun_up else 1]
 
 
 def days_left(language: str, count: int) -> str:

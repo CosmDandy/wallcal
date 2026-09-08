@@ -29,7 +29,6 @@ from .strings import MONTHS
 # would start underneath the digits.
 CLOCK_TOP = {"std": 0.30, "big": 0.38}
 SAFE_TOP = CLOCK_TOP["std"]
-SAFE_BOTTOM = 0.83
 SIDE_MARGIN = 0.035  # fraction of width
 
 # The two round buttons sit side by side near the bottom with a wide empty lane
@@ -37,6 +36,13 @@ SIDE_MARGIN = 0.035  # fraction of width
 # the system UI rather than as something stranded above it.
 CONTROLS_ROW = 0.912  # vertical center of the buttons, checked against a real phone
 BAR_ROW = 0.943  # the progress bar rides below the words, above the home indicator
+# The words do not go there. iOS parks the Focus pill in that same lane, and the
+# notification stack lands on top of it whenever anything has arrived, so a line
+# of text down there is legible on an empty phone and gone on a used one. It
+# sits above the buttons instead, right under the grid's own floor — the last
+# strip the notifications reach. The rule stays below: a hairline still reads
+# under a pill, a sentence does not.
+FOOTER_ROW = 0.862  # the lowest line of our own drawing, footer or not
 CONTROLS_CLEAR = 0.20  # fraction of width each button occupies, from its edge
 CONTROLS_RADIUS = 0.062  # button radius, as a fraction of width
 QUOTE_CLEARANCE = 0.008  # gap kept between the quote and the top of the buttons
@@ -61,8 +67,42 @@ AXIS_MAX = 0.011  # ...but never more than this fraction of screen height
 FOOTER_SIZE = 0.017  # footer type size as a fraction of screen height
 QUOTE_BAND = 0.075  # fraction of height given to the quote, under the grid
 QUOTE_SIZE = 0.0165  # quote type size as a fraction of screen height
+# The sun and moon band is the quote's slot with something else in it, so it
+# needs no reserve of its own — only a size. A hair under the quote's: the line
+# is digits, and digits at the quote's size read as a readout.
 
 MIN_PITCH = 4
+
+
+def footer_slot(height: int) -> int:
+    """The strip the footer line occupies, whether or not it is switched on.
+
+    Held even when the line is off. The dots are the picture, and a picture that
+    grows and drops half an inch because a caption was turned off is not the
+    same picture: the field would sit low with a gap under the clock, and every
+    toggle below it would shuffle the whole wallpaper. The room that frees up
+    goes to the quote instead, which is measured against this floor rather than
+    fixed to it.
+    """
+    return max(11, round(FOOTER_SIZE * height)) + round(QUOTE_CLEARANCE * height)
+
+
+def quote_floor(height: int, footer: bool = True) -> int:
+    """How far down the quote may reach: onto the footer's strip when it is off."""
+    floor = round(FOOTER_ROW * height)
+    return floor - footer_slot(height) if footer else floor
+
+
+def grid_floor(height: int, quote: bool = False) -> int:
+    """The lowest row the dots may reach.
+
+    Only the quote takes room from them — it is the one thing below the field
+    that is worth shrinking the field for. Everything else keeps its strip.
+    """
+    floor = round(FOOTER_ROW * height) - footer_slot(height)
+    if quote:
+        floor -= round(QUOTE_BAND * height) + round(QUOTE_CLEARANCE * height)
+    return floor
 
 
 class LabelSide(Enum):
@@ -177,20 +217,20 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
     groups: int = 1,
     split: bool = True,
     labels: LabelSide = LabelSide.LEFT,
-    quote: bool = False,
+    quote: bool = False,  # or anything else asking for the band under the grid
+    footer: bool = True,
     clock: str = "std",
     shift: int = 0,
 ) -> Layout:
     margin_x = round(SIDE_MARGIN * width)
     avail_w = width - 2 * margin_x
     avail_y0 = round(CLOCK_TOP[clock] * height)
-    avail_y1 = round(SAFE_BOTTOM * height)
     # The quote hangs below the grid's own floor, stopping just short of the
     # buttons — that empty strip is the lowest a wallpaper may draw.
-    quote_h = round(QUOTE_BAND * height) if quote else 0
-    quote_bottom = round(CONTROLS_ROW * height - CONTROLS_RADIUS * width - QUOTE_CLEARANCE * height)
-    if quote:
-        avail_y1 = min(avail_y1, quote_bottom - quote_h)
+    footer_font = max(11, round(FOOTER_SIZE * height))
+    footer_center_y = round(FOOTER_ROW * height)
+    quote_bottom = quote_floor(height, footer=footer)
+    avail_y1 = grid_floor(height, quote=quote)
     band_h = avail_y1 - avail_y0
 
     axis_font = max(8, round(AXIS_MAX * height))
@@ -288,11 +328,11 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
         week_label_anchor=week_label_anchor,
         month_center_x=month_center_x,
         header_center_y=grid_y - round(header_h * 0.5),
-        footer_center_y=round(CONTROLS_ROW * height),
+        footer_center_y=footer_center_y,
         bar_center_y=round(BAR_ROW * height),
         quote_center_y=quote_center_y,
         quote_font=max(10, round(QUOTE_SIZE * height)),
         footer_max_width=width - 2 * round(CONTROLS_CLEAR * width),
         axis_font=axis_font,
-        footer_font=max(11, round(FOOTER_SIZE * height)),
+        footer_font=footer_font,
     )
