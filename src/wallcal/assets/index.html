@@ -475,20 +475,18 @@
   /* ── Copy ─────────────────────────────────────────────────────────────────
      The tick is drawn, not shown: its stroke runs on when the text lands in the
      clipboard, which is the only confirmation a copy ever gets. */
-  #copy, #share { display:inline-flex; align-items:center; gap:7px; }
-  /* A button holding a tick lays itself out as a flex row, which is what keeps
-     the word centred while the tick is not there: inline children would leave
-     the whitespace between the svg and the span standing, and the label sat a
-     space off centre until the moment you pressed it. The gap opens with the
-     tick rather than being held for it. */
-  .action:has(.tick) { display:inline-flex; align-items:center; justify-content:center; }
+  /* A button holding a tick is a flex row, and the row carries no gap: the tick
+     is away most of the time, and a gap held for it put the word 3.5px right of
+     centre on a button 7px wider than its own contents. The space arrives with
+     the tick, as a margin on the tick itself, and leaves with it. */
+  #copy, #share { display:inline-flex; align-items:center; justify-content:center; gap:0; }
   .tick {
-    width:0; opacity:0; overflow:visible; margin-right:0;
+    width:0; opacity:0; overflow:hidden; margin-right:0;
     transition:width .28s var(--ease), opacity .2s var(--ease),
                margin-right .28s var(--ease);
   }
   .tick path { stroke-dasharray:18; stroke-dashoffset:18; }
-  .action.copied .tick { width:15px; opacity:1; margin-right:6px; }
+  .action.copied .tick { width:15px; opacity:1; margin-right:7px; }
   .action.copied .tick path { animation:tickDraw .32s var(--ease) forwards; }
   @keyframes tickDraw { to { stroke-dashoffset:0; } }
 
