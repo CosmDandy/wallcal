@@ -2,99 +2,92 @@
 
 ## The recommendation
 
-Build it, but build one thing, not four. A single band under the grid, in the
-strip the layout already keeps empty between the grid's floor and the lock
-screen buttons, holding a moon glyph and — when the URL carries coordinates —
-one line of numbers: `06:12 – 19:48 · 13:36 +2:14`. The moon is drawn, not
-typed, at the size of a grid dot and in the grid's own two tones, so it reads as
-one more dot rather than as an emoji pasted onto a wallpaper. The band shares
-its slot with the quote: one occupant, never both, exactly as `qt` and `q`
-already share the one quote slot (`src/wallcal/render.py:217-223`). Placed
-there it costs the dot field nothing — not a pixel of pitch, not a row — because
-the strip it sits in is space no grid was ever allowed to use. Everything else
-this feature could grow — twilight, golden hour, moonrise, a phase name, a
+Build it, but build one thing, not four. A single band under the grid, holding
+a moon glyph and — when the URL carries coordinates — one line of numbers:
+`06:12 – 19:48 · 13:36 +2:14`. The moon is drawn, not typed, at the size of a
+grid dot and in the grid's own two tones, so it reads as one more dot rather
+than as an emoji pasted onto a wallpaper. The band does not get a strip of its
+own: it stands in the quote's slot, one occupant and never both, exactly as `qt`
+and `q` already share that one slot (`Style.shows_quote`,
+`src/wallcal/render.py`). So it is free whenever a quote was going to be there
+anyway, and costs a quote's worth of pitch when it was not — which is the price
+of the band being under the field rather than in it. Everything else this
+feature could grow — twilight, golden hour, moonrise, a phase name, a
 percentage, a default city, an IP lookup — is left out, and the reasons are at
 the bottom.
 
 ## Where it sits
 
-`layout.py` already draws three horizontal lines across the bottom of the
-screen, and it is worth being exact about where, because the room for a fourth
-is not a matter of taste.
+`layout.py` draws four horizontal lines across the bottom of the screen, and it
+is worth being exact about where, because the room for the band is not a matter
+of taste.
 
-The grid lives between `CLOCK_TOP` and `SAFE_BOTTOM` — `0.30h` and `0.83h`
-(`src/wallcal/layout.py:30-32`), read into `avail_y0` and `avail_y1` at
-`src/wallcal/layout.py:186-187`. Below that:
+The grid lives between `CLOCK_TOP` and a floor that is computed rather than
+named: `grid_floor` is `FOOTER_ROW` less `footer_slot`, and `FOOTER_ROW` is
+`0.862h` (`src/wallcal/layout.py:45`, `layout.py:74-102`). Below that:
 
 | what | where | source |
 | ---- | ----- | ------ |
-| grid floor | `0.83h` | `SAFE_BOTTOM`, `layout.py:32` |
-| top of the buttons | `CONTROLS_ROW·h − CONTROLS_RADIUS·w` = `0.8834h` on `i16` | `layout.py:38,41` |
-| quote's own floor | that, minus `QUOTE_CLEARANCE` = `0.8756h` on `i16` | `layout.py:191` |
-| footer line | `0.912h` | `footer_center_y`, `layout.py:291` |
-| progress rule | `0.943h` | `bar_center_y`, `layout.py:292` |
+| grid floor | `0.837h` | `grid_floor(h)`, `layout.py:93` |
+| footer line | `0.862h` | `FOOTER_ROW`, `layout.py:45` |
+| top of the buttons | `0.8834h` on `i16` | `CONTROLS_ROW`, `CONTROLS_RADIUS` |
+| progress rule | `0.943h` | `BAR_ROW`, `layout.py:38` |
 
-Between the grid floor and the quote's floor there is a strip of `0.0456h` that
-nothing may draw in and the grid can never reach. It cannot reach it because
-`pitch_y` is computed as `int((band_h - header_h) / rows)` and is only ever
-lowered afterwards — by the aspect cap and by the parity trim
-(`layout.py:214-223`) — so `block_h` never exceeds `band_h`, `slack` is never
-negative, and the manual nudge `sh` is clamped to `slack` (`layout.py:249-252`).
-The grid stops at `0.83h` or above, always. Measured on the three presets:
+**This is where the first draft of this note was wrong, and it is worth saying
+so.** It was written against a layout that parked the footer down in the button
+lane at `0.912h` and left the strip between `0.83h` and `0.8756h` empty — a free
+`0.0456h` the grid could never reach and nothing else used, which is where the
+band was going to sit for nothing. The footer has since moved up into exactly
+that strip, for its own reasons (`layout.py:39-45`), and the free space is gone.
+There is no longer a place under the grid that costs nothing.
 
-| preset | strip | height |
-| ------ | ----- | ------ |
-| `i16` 1179×2556 | 2122 – 2238 | 116 px |
-| `i16p` 1206×2622 | 2176 – 2296 | 120 px |
-| `i16pm` 1320×2868 | 2380 – 2511 | 131 px |
+So the band does not get a strip of its own. It gets *the quote's* — the same
+reserve, the same centre line, and never both at once:
 
-Its centre lands on `0.8528h`, `0.8528h`, `0.8525h` — call it `0.853h`, though
-the code should not hard-code that. Derive it the way `quote_center_y` is
-derived (`layout.py:272`), from the two constants that define the strip:
+- the reserve is `QUOTE_BAND` plus `QUOTE_CLEARANCE`, taken off the grid's floor
+  when anything at all wants the slot (`layout.py:93-102`, and `Style.shows_band`
+  in `render.py`);
+- the centre is `quote_center_y`, half way between the grid's last row and
+  `quote_floor`, so it follows the grid when the clock preset or the manual
+  nudge moves it instead of being a fourth magic fraction to re-tune beside
+  them.
 
-```
-astro_center_y = (round(SAFE_BOTTOM * height) + quote_bottom) // 2
-```
+Measured on `i16` with a one-year span the band centre lands at `0.795h`; on a
+three-month span it sits lower, because the grid ends higher. Which is the whole
+point of deriving it rather than fixing it: it is not a fraction of the screen,
+it is the middle of what is left.
 
-so it tracks `SAFE_BOTTOM`, `CONTROLS_ROW` and `CONTROLS_RADIUS` instead of
-becoming a fourth magic fraction that has to be re-tuned alongside them.
+**Cost to the grid: the quote's cost, and only when nothing was already paying
+it.** With `q=1` the reserve is taken anyway and `sky` is free. With `q=0` it
+costs what a quote costs — on `i16` at one year, `pitch_y` drops from 48 to 40
+and the dot from 32px to 26px.
 
-**Cost to the grid: none.** Set `q=0`, and the astronomy band is drawn in space
-that was already lost. Set `q=1` and the quote takes the slot instead; the grid
-is affected exactly as much as it is today and no more.
-
-The counterfactual is worth pricing, because the tempting answer is "let both
-exist". Giving astronomy a reserve of its own, the way `QUOTE_BAND` gets
-`0.075h` (`layout.py:62,190-193`), costs real dots. Measured on `i16` with a
-one-year span — the case that actually binds, where the grid fills its band —
-turning the quote on drops `pitch_y` from 46 to 44 and the dot from 30 px to
-28 px across all 27 rows. A second band of the same kind would take another
-bite of the same size. Two bands would also only fit on sparse grids: a
-three-month span leaves 179 px between the quote and the buttons, a one-year
-span leaves none. A layout that works on some spans and not others is worse
-than a layout with one slot in it.
+Sizing the reserve to the occupant instead — a shallow band for one line and a
+moon, a deep one for three lines of prose — was the other option, and it is
+worse for the reason `footer_slot` gives in its own docstring
+(`layout.py:74-85`): a picture that lifts half an inch because a caption was
+swapped for a moon is not the same picture. One slot, one size, whichever thing
+is standing in it.
 
 ### Why the band and not the footer lane
 
 The footer lane is the other candidate, and `_draw_footer` is already written
 for it — it takes a tuple of lines and centres the block, and its docstring says
-so (`render.py:339-342`). It is the wrong home for two reasons, both measurable.
+so. It is the wrong home for two reasons, both measurable.
 
-It is narrow. `footer_max_width` is `width − 2·CONTROLS_CLEAR·w` = 707 px on
-`i16` (`layout.py:295`), because the two round buttons flank it. The band, one
-step higher up the screen, is above the buttons entirely and can use the grid's
-own width — 899 px on the same phone — which is what `_draw_quote` already wraps
-to (`render.py:390`), and which is why the quote squares up with the dots.
+It is narrow. `footer_max_width` is `width − 2·CONTROLS_CLEAR·w` = 707px on
+`i16`, still the width of the lane between the two round buttons even now that
+the line itself has moved above them. The band, one step higher up the screen,
+can use the grid's own width — 899px on the same phone — which is what
+`_draw_quote` already wraps to, and which is why the quote squares up with the
+dots.
 
-It is crowded. The full line at the footer's own size measures 657 px, so it
-fits — but the shrink-to-fit loop at `render.py:349-355` only ever measures
-width. Stack two lines there and the block grows downward toward the progress
-rule at `0.943h` with nothing checking it: on `i16` the second line's ink ends
-28 px above the bar. It does not collide today; it would be one `FOOTER_SIZE`
-bump away from colliding, and the render tests compare pixels at the cell, not
-at the bar. And with the buttons on either side, a two-line block plus a rule
-reads as a paragraph of statistics wedged into the system UI. Mocked up, it
-looks like a status report. The band looks like a caption.
+It is crowded. The lane already holds the progress line, and the shrink-to-fit
+loop in `_draw_footer` only ever measures width. Stack a second line there and
+the block grows downward toward the progress rule at `0.943h` with nothing
+checking it, and the render tests compare pixels at the cell, not at the bar.
+Mocked up, two lines and a rule read as a status report. The band reads as a
+caption.
 
 ## The moon
 
@@ -165,7 +158,7 @@ rather than as a rendering failure. No clamping, no minimum crescent width.
 
 ### Size and orientation
 
-`MOON_RATIO = 1.05` of the astronomy type size, itself `ASTRO_SIZE = 0.0155h`:
+`MOON_RATIO = 1.05` of the band's type size, itself `SKY_SIZE = 0.0155h`:
 42 px on `i16`, 43 on `i16p`, 46 on `i16pm`. That is a hair over the type's own
 size and, on a two-weeks-to-a-row span, within two pixels of a grid dot — which
 is why it sits in the band as a member of the field rather than as an icon. Tie
@@ -207,7 +200,7 @@ forty lines of arithmetic that will never change. Not worth it.
 
 ### The line itself
 
-`06:12 – 19:48 · 13:36 +2:14`, in `FONT_REGULAR` at `ASTRO_SIZE`, measured at
+`06:12 – 19:48 · 13:36 +2:14`, in `FONT_REGULAR` at `SKY_SIZE`, measured at
 657 px against the 899 px the grid gives it. An en dash for the pair, because
 that is what a range is set with and it needs no explaining in either language;
 a middot to break off the duration, matching the footer's own `6 / 122 · 4.9%`.
@@ -241,7 +234,7 @@ zone except which day is "today", which is hashed. Print local clock times and
 that stops being true — two phones in different zones on the same calendar date
 would render different images under one `ETag`, and `Cache-Control` is `public`
 (`app.py:322`), so a shared cache is entitled to hand one of them the other's
-picture. `tz` joins the fingerprint at `app.py:314-317`. One token, and the
+picture. `tz` joins the fingerprint where it is built in `app.py`. One token, and the
 existing `ETag` tests keep passing.
 
 ## Parameters
@@ -261,7 +254,7 @@ with the same wording `w` and `h` already get (`devices.py:52-53`).
 One band, one occupant, and the precedence runs from most specific to least:
 `qt` (a line you wrote yourself) beats `sky`, which beats `q` (the rotation).
 The rule is the one already in the code — writing something explicitly is asking
-for it (`render.py:217-223`).
+for it (`Style.shows_sky` and `Style.shows_quote`, `render.py`).
 
 ### Where the location comes from
 
@@ -312,14 +305,21 @@ there is no rise and no set. This is not rare and not brief: Tromsø in 2026 has
 polar night from 28 November to 14 January and midnight sun from 18 May to
 25 July — 117 days of the year with nothing to print. The line must say so in
 words, which means two rows per language in `strings.py`, the one file that
-exists so that adding a language means adding rows and nothing else
-(`strings.py:1-6`). Everything else on the line is digits and punctuation and
+exists so that adding a language means adding rows and nothing else (`POLAR`). Everything else on the line is digits and punctuation and
 survives `lang` untouched.
 
 **The delta at the transition.** The day-length delta is drawn only when both
 today and yesterday had a rise and a set. Across the boundary into polar day the
 previous day's length is meaningless as a comparison, and the honest thing is to
 drop the number rather than print a jump.
+
+**A day that runs past local midnight.** For a fortnight either side of every
+polar spell the sun sets after midnight on the local clock, and the pair comes
+out `01:31 – 00:02` — which reads as a twenty-three *minute* day. The length is
+the only token that says otherwise, so it is printed whenever the two times fall
+on different local dates, `dl=0` or not. There it is not a statistic beside two
+clock times, it is what makes them readable; the argument for keeping the
+duration and the delta together does not reach it.
 
 **The delta at the solstices.** The brief's `+2:14` is a spring figure. Around
 the June solstice in London the delta runs `+0:26, +0:20, +0:14, +0:08, +0:02,

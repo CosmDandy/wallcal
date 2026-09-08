@@ -36,7 +36,7 @@ def test_index_serves_the_builder(client: TestClient):
         assert f'data-mode="{mode}"' in body
     # Every query parameter the API takes should be reachable from the page.
     knobs = ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "pc", "mk", "th", "ft", "br", "pv")
-    for knob in knobs:
+    for knob in (*knobs, "sky", "dl"):
         assert f'data-key="{knob}"' in body
 
 
@@ -166,6 +166,10 @@ def test_named_and_hex_colors_both_work(client: TestClient):
         "f=2026-09-01&t=2026-11-30&hdr=roman",
         "f=2026-09-01&t=2026-11-30&pc=de",
         "f=2026-09-01&t=2026-11-30&pc=1",
+        "f=2026-09-01&t=2026-11-30&sky=stars",
+        "f=2026-09-01&t=2026-11-30&sky=sun",  # no coordinates at all
+        "f=2026-09-01&t=2026-11-30&sky=both&lat=51.5",  # half a pair
+        "f=2026-09-01&t=2026-11-30&sky=sun&lon=-0.13",
         "f=yesterday&t=2026-11-30",
         "f=2026-09-01&t=90x",
     ],
@@ -543,3 +547,57 @@ def test_a_relative_end_gives_a_link_that_outlives_its_span(client: TestClient):
 
 def test_unknown_mode_is_rejected(client: TestClient):
     assert client.get(f"/w/moon.png?{SPAN}").status_code == 400
+
+
+SUN = f"{SPAN}&sky=both&lat=51.51&lon=-0.13"
+
+
+@pytest.mark.parametrize("mode", ["none", "moon", "sun", "both"])
+def test_every_sky_mode_is_served(client: TestClient, mode: str):
+    query = f"{SPAN}&sky={mode}" + ("&lat=51.51&lon=-0.13" if mode in ("sun", "both") else "")
+    assert client.get(f"/w/span.png?{query}").status_code == 200
+
+
+@pytest.mark.parametrize("pair", ["lat=91&lon=0", "lat=0&lon=181"])
+def test_a_coordinate_off_the_globe_is_refused(client: TestClient, pair: str):
+    """A bounded knob, so FastAPI turns it down before the handler runs."""
+    assert client.get(f"/w/span.png?{SPAN}&sky=sun&{pair}").status_code == 422
+
+
+def test_the_moon_asks_for_no_location(client: TestClient):
+    """The illuminated fraction is the same for everyone, so it is the honest entry point."""
+    assert client.get(f"/w/span.png?{SPAN}&sky=moon").status_code == 200
+
+
+def test_the_sky_changes_the_image(client: TestClient):
+    bare = client.get(f"/w/span.png?{SPAN}").headers["etag"]
+    moon = client.get(f"/w/span.png?{SPAN}&sky=moon").headers["etag"]
+
+    assert bare != moon
+
+
+def test_a_coarser_coordinate_is_the_same_image(client: TestClient):
+    """Two decimals is what the parser keeps, so a sharper link renders the same picture."""
+    coarse = client.get(f"/w/span.png?{SPAN}&sky=sun&lat=51.51&lon=-0.13").headers["etag"]
+    sharp = client.get(f"/w/span.png?{SPAN}&sky=sun&lat=51.50735&lon=-0.12776").headers["etag"]
+
+    assert coarse == sharp
+
+
+def test_the_zone_is_part_of_the_etag_once_a_clock_time_is_drawn(client: TestClient):
+    """Same date, same coordinates, different wall clock — and Cache-Control is public.
+
+    Without the zone in the fingerprint a shared cache would be entitled to hand
+    one phone the other's picture.
+    """
+    london = client.get(f"/w/span.png?{SUN}&tz=Europe/London").headers["etag"]
+    moscow = client.get(f"/w/span.png?{SUN}&tz=Europe/Moscow").headers["etag"]
+
+    assert london != moscow
+
+
+def test_the_day_length_can_be_dropped(client: TestClient):
+    assert (
+        client.get(f"/w/span.png?{SUN}&dl=0").headers["etag"]
+        != client.get(f"/w/span.png?{SUN}").headers["etag"]
+    )

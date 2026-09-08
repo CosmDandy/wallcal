@@ -6,15 +6,18 @@ import hashlib
 import io
 import math
 from datetime import date
+from zoneinfo import ZoneInfo
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from wallcal import layout as L
 from wallcal.devices import Device
 from wallcal.grid import CellState, build_span
 from wallcal.palette import lerp, luminance
 from wallcal.render import (
+    MOON_RATIO,
+    MOON_STEPS,
     BarMode,
     FooterMode,
     HeaderMode,
@@ -22,10 +25,13 @@ from wallcal.render import (
     Shape,
     ShapeError,
     Style,
+    _moon_masks,
+    _sky_line,
     parse_shape,
     render_span,
     to_png,
 )
+from wallcal.sky import SkyMode
 
 from .conftest import SPAN_END, SPAN_START, TODAY
 
@@ -667,3 +673,153 @@ def test_the_band_stops_at_the_gap_between_the_weeks():
     assert lay.group_gap > 2, "no gap to test"
     for x in range(right + 1, lay.cell_box(sunday_row, sunday_col + 1)[0]):
         assert image.getpixel((x, middle)) == style.background
+
+
+def band_bounds(image: Image.Image, lay: L.Layout) -> tuple[int, int, int, int] | None:
+    """The ink between the grid's last row and the footer's own strip."""
+    top = lay.grid_y + lay.grid_height
+    strip = image.crop((0, top, lay.width, L.quote_floor(lay.height)))
+    flat = Image.new("RGB", strip.size, Style().background)
+    found = ImageChops.difference(strip, flat).getbbox()
+    if found is None:
+        return None
+    return found[0], found[1] + top, found[2], found[3] + top
+
+
+def sky_layout(grid, device: Device, style: Style) -> L.Layout:
+    return L.compute(
+        device.width,
+        device.height,
+        grid.rows,
+        grid.columns,
+        grid.columns // 7,
+        quote=style.shows_band,
+        clock=style.clock,
+    )
+
+
+def test_the_moon_lands_in_the_band_under_the_grid(device: Device):
+    """One slot, and the moon centred in it: nothing of it reaches the dots."""
+    grid = grid_of()
+    style = Style(sky=SkyMode.MOON)
+    lay = sky_layout(grid, device, style)
+    image = render_span(grid, device.width, device.height, style)
+
+    bounds = band_bounds(image, lay)
+    assert bounds is not None, "nothing was drawn in the band"
+    left, top, right, bottom = bounds
+    size = round(lay.sky_font * MOON_RATIO)
+
+    assert bottom - top == pytest.approx(size, abs=2)
+    assert right - left == pytest.approx(size, abs=2)
+    assert (top + bottom) / 2 == pytest.approx(lay.quote_center_y, abs=2)
+    assert (left + right) / 2 == pytest.approx(lay.width / 2, abs=2)
+
+
+def test_the_band_costs_the_field_exactly_what_a_quote_costs(device: Device):
+    """The slot is one size whichever occupies it, so swapping them moves no dot."""
+    grid = grid_of()
+    moon = Style(sky=SkyMode.MOON)
+    quote = Style(quote=True)
+
+    assert sky_layout(grid, device, moon) == sky_layout(grid, device, quote)
+
+    lay = sky_layout(grid, device, moon)
+    drawn = render_span(grid, device.width, device.height, moon)
+    written = render_span(grid, device.width, device.height, quote)
+    for cell in grid.cells:
+        if cell.state is not CellState.OUTSIDE:
+            assert pixel_at_cell(drawn, lay, cell) == pixel_at_cell(written, lay, cell)
+
+
+def test_the_band_is_only_reserved_when_something_wants_it(device: Device):
+    """A year is the span that fills its band, so it is where the reserve is felt."""
+    grid = grid_of(date(2026, 1, 1), date(2026, 12, 31))
+    bare = sky_layout(grid, device, Style())
+    banded = sky_layout(grid, device, Style(sky=SkyMode.MOON))
+
+    assert bare.quote_center_y == 0
+    assert banded.quote_center_y > banded.grid_y + banded.grid_height
+    assert banded.pitch_y < bare.pitch_y
+
+
+def test_your_own_line_outranks_the_sky_and_the_sky_outranks_the_rotation():
+    """Writing something explicitly is asking for it — the rule `qt` and `q` already follow."""
+    assert Style(sky=SkyMode.MOON).shows_sky
+    assert not Style(sky=SkyMode.MOON).shows_quote
+
+    both = Style(sky=SkyMode.MOON, quote=True)
+    assert both.shows_sky and not both.shows_quote
+
+    written = Style(sky=SkyMode.MOON, quote_text="mine")
+    assert written.shows_quote and not written.shows_sky
+
+
+def test_the_rotation_still_wins_when_no_sky_was_asked_for():
+    assert Style(quote=True).shows_quote
+    assert Style(quote=True, sky=SkyMode.NONE).shows_quote
+
+
+@pytest.mark.parametrize(
+    ("fraction", "expected"),
+    [(0.0, "none"), (0.5, "half"), (1.0, "all")],
+)
+def test_the_terminator_walks_the_disc(fraction: float, expected: str):
+    disc, lit = _moon_masks(64, round(fraction * MOON_STEPS), True)
+    whole = sum(disc.get_flattened_data())
+    part = sum(lit.get_flattened_data())
+
+    if expected == "none":
+        assert part == 0
+    elif expected == "all":
+        assert part == pytest.approx(whole, rel=0.001)
+    else:
+        assert part == pytest.approx(whole / 2, rel=0.02)
+
+
+def test_a_gibbous_moon_bulges_past_the_half_disc():
+    """The construction the folk one cannot do: more than half lit, and not a disc."""
+    disc, half = _moon_masks(64, MOON_STEPS // 2, True)
+    _, gibbous = _moon_masks(64, round(0.75 * MOON_STEPS), True)
+
+    def ink(mask: Image.Image) -> int:
+        return sum(mask.get_flattened_data())
+
+    assert ink(half) < ink(gibbous) < ink(disc)
+
+
+def test_a_waxing_moon_is_lit_on_the_right():
+    """Cusps to the left, as seen from the northern hemisphere; mirrored below it."""
+    _, waxing = _moon_masks(64, round(0.25 * MOON_STEPS), True)
+    _, waning = _moon_masks(64, round(0.25 * MOON_STEPS), False)
+
+    def weight(mask: Image.Image, box: tuple[int, int, int, int]) -> int:
+        return sum(mask.crop(box).get_flattened_data())
+
+    left, right = (0, 0, 32, 64), (32, 0, 64, 64)
+    assert weight(waxing, right) > weight(waxing, left)
+    assert weight(waning, left) > weight(waning, right)
+
+
+def sun_line(day: date, dl: bool, zone: str, place: tuple[float, float]) -> str:
+    style = Style(sky=SkyMode.SUN, location=place, day_length=dl)
+    return _sky_line(day, style, place, ZoneInfo(zone))
+
+
+def test_the_day_length_can_be_dropped_from_the_line():
+    line = sun_line(date(2026, 9, 8), False, "Europe/London", (51.51, -0.13))
+    assert line == "06:24 – 19:31"
+
+
+def test_a_day_running_past_midnight_keeps_its_length():
+    """`01:31 – 00:02` reads as a 23-minute day; only the length says otherwise.
+
+    The fortnight either side of a polar spell has the sun setting after local
+    midnight, so the pair alone is backwards. The length goes in even when `dl`
+    asked for no numbers — it is not a statistic there, it is the disambiguator.
+    """
+    tromso = (69.65, 18.96)
+    wrapped = sun_line(date(2026, 5, 16), False, "Europe/Oslo", tromso)
+
+    assert wrapped.startswith("01:31 – 00:02")
+    assert wrapped.endswith("· 22:31"), wrapped

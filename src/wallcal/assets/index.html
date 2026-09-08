@@ -217,6 +217,11 @@
   .row { display:grid; grid-template-columns:118px minmax(0,1fr); gap:12px;
          align-items:center; margin-bottom:10px; }
   .row:last-child { margin-bottom:0; }
+  /* `.row` sets a display, and an author rule outranks the UA's own
+     `[hidden] { display:none }` — the same trap `.marker [hidden]` is there
+     for. Rows are hidden from script (a span-only date, a location the moon
+     does not need), so the rule has to be stated. */
+  .row[hidden] { display:none; }
   .row > label { font-size:13px; color:var(--ink-dim); }
   /* A fixed label column costs a third of a phone screen, which is what pushed
      the text fields into a sliver. Below that width the label sits above. */
@@ -557,6 +562,7 @@
      the page drops straight behind it unless the panel is lifted past it. */
   .panel.above { z-index:25; }
   .panel:nth-of-type(8) { animation-delay:.38s; }
+  .panel:nth-of-type(9) { animation-delay:.42s; }
 
   .hint { font-size:12px; color:var(--ink-faint); margin:12px 2px 0; }
   .row + .hint { margin:2px 0 10px; }
@@ -744,6 +750,25 @@
         <span class="hint" id="marker-cap"></span>
       </div>
     </fieldset>
+
+    <fieldset class="panel wide">
+      <legend>Sky</legend>
+      <div class="row"><label>Band</label><span class="seg" data-key="sky"></span></div>
+      <div class="row" data-sky-on>
+        <label for="lat">Location</label>
+        <span class="inline size">
+          <input type="number" id="lat" min="-90" max="90" step="0.01"
+                 inputmode="decimal" placeholder="lat">
+          <input type="number" id="lon" min="-180" max="180" step="0.01"
+                 inputmode="decimal" placeholder="lon">
+          <button type="button" class="action small" id="locate">Locate</button>
+        </span>
+      </div>
+      <div class="row" data-sky-sun>
+        <label>Day length</label><span class="seg" data-key="dl"></span>
+      </div>
+      <p class="hint" id="sky-hint"></p>
+    </fieldset>
   </form>
 </main>
 
@@ -799,6 +824,8 @@ const OPTIONS = {
   q:  { def:"0",    items:[["1","On"],["0","Off"]] },
   ft: { def:"pct",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
   br: { def:"1",    items:[["1","Span"],["year","Year"],["quarter","Quarter"],["month","Month"],["0","Off"]] },
+  sky:{ def:"none", items:[["none","None"],["moon","Moon"],["sun","Sun"],["both","Both"]] },
+  dl: { def:"1",    items:[["1","On"],["0","Off"]] },
 };
 
 const SWATCHES = {
@@ -858,6 +885,9 @@ const shot = document.getElementById("shot");
 const screenW = document.getElementById("pw");
 const screenH = document.getElementById("ph");
 const sizeHint = document.getElementById("size-hint");
+const latField = document.getElementById("lat");
+const lonField = document.getElementById("lon");
+const skyHint = document.getElementById("sky-hint");
 const phone = document.querySelector(".phone");
 
 function iso(date) {
@@ -950,6 +980,51 @@ function paintScreen() {
   const known = KNOWN_SCREENS.find(([w, h]) => w === size.w && h === size.h);
   sizeHint.textContent = known ? known[2] : "Native pixels, not points.";
   return true;
+}
+
+// The sun needs a place to be the sun over, and this is the one thing the
+// builder asks for that is about the reader rather than the picture. It is
+// chosen on the device — the browser's own prompt, or two numbers typed in —
+// and cut to the two decimals the server keeps, so the link never carries a
+// sharper position than the wallpaper uses.
+function coordinates() {
+  if (latField.value === "" || lonField.value === "") return null;
+  const lat = Number(latField.value), lon = Number(lonField.value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat: lat.toFixed(2), lon: lon.toFixed(2) };
+}
+
+function needsPlace() {
+  return state.sky === "sun" || state.sky === "both";
+}
+
+// The server answers 400 for a sun with no coordinates, and a 400 in the
+// preview is a broken image. Half-typed numbers are held back the same way a
+// half-typed screen size is.
+function skyFault() {
+  return needsPlace() && !coordinates();
+}
+
+function paintSky() {
+  document.querySelectorAll("[data-sky-on]").forEach((row) => {
+    row.hidden = state.sky === "none";
+  });
+  document.querySelectorAll("[data-sky-sun]").forEach((row) => {
+    row.hidden = !needsPlace();
+  });
+  const fault = skyFault();
+  latField.classList.toggle("bad", fault);
+  lonField.classList.toggle("bad", fault);
+  if (state.sky === "none") skyHint.textContent = "";
+  else if (fault) skyHint.textContent = "Sunrise needs a place. Press Locate, or type a pair.";
+  else if (state.sky === "moon") {
+    skyHint.textContent = "The phase is the same for everyone; a location only " +
+                          "decides which way the crescent turns.";
+  } else {
+    skyHint.textContent = "Kept to two decimals — about a kilometre — in the link, " +
+                          "and blunter than that in the server's log.";
+  }
 }
 
 function paintDates() {
@@ -1172,6 +1247,7 @@ function paintSelection() {
   paintModes();
   paintDates();
   paintScreen();
+  paintSky();
   paintMarkers();
   nudge.value = state.sh;
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
@@ -1195,12 +1271,17 @@ function query({ forPreview = false } = {}) {
   }
   for (const [key, spec] of Object.entries({ ...OPTIONS, ...SWATCHES })) {
     if (PREVIEW_ONLY.has(key)) continue;
+    // A sun with nowhere to rise is a 400, and a link that answers 400 is worse
+    // than a link with one knob missing. The hint under the panel says why.
+    if (key === "sky" && skyFault()) continue;
     if (state[key] !== spec.def) parts.push(`${key}=${state[key]}`);
   }
   for (const marker of markers) {
     const spec = markerSpec(marker, { named: !forPreview });
     if (spec) parts.push(`m=${spec}`);
   }
+  const place = coordinates();
+  if (state.sky !== "none" && place) parts.push(`lat=${place.lat}`, `lon=${place.lon}`);
   if (quoteText.value.trim()) {
     parts.push(`qt=${encodeURIComponent(quoteText.value.trim())}`);
     if (quoteAuthor.value.trim()) parts.push(`qa=${encodeURIComponent(quoteAuthor.value.trim())}`);
@@ -1216,6 +1297,7 @@ function query({ forPreview = false } = {}) {
 function save() {
   const snapshot = { ...state, mode, f: fromInput.value, t: toInput.value,
                      w: screenW.value, h: screenH.value,
+                     lat: latField.value, lon: lonField.value,
                      qt: quoteText.value, qa: quoteAuthor.value, m: markers };
   try { localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); } catch {}
   // Also mirrored into this page's own address, so a reload or a shared builder
@@ -1247,6 +1329,8 @@ function restore() {
   screenH.value = pick("h") || SCREEN.h;
   quoteText.value = pick("qt") || "";
   quoteAuthor.value = pick("qa") || "";
+  latField.value = pick("lat") || "";
+  lonField.value = pick("lon") || "";
   if (pick("mode")) mode = pick("mode");
   return Boolean(pick("f") && pick("t"));
 }
@@ -1276,7 +1360,26 @@ document.getElementById("presets").addEventListener("click", (event) => {
   const preset = event.target.dataset.preset;
   if (preset) applyPreset(preset);
 });
-for (const field of [screenW, screenH]) field.addEventListener("input", render);
+for (const field of [screenW, screenH, latField, lonField]) {
+  field.addEventListener("input", render);
+}
+
+document.getElementById("locate").addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    skyHint.textContent = "This browser will not share a location; type a pair instead.";
+    return;
+  }
+  skyHint.textContent = "Asking the browser…";
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => {
+      latField.value = coords.latitude.toFixed(2);
+      lonField.value = coords.longitude.toFixed(2);
+      render();
+    },
+    () => { skyHint.textContent = "The browser refused — type a latitude and longitude."; },
+    { maximumAge: 600000, timeout: 10000 },
+  );
+});
 fromInput.addEventListener("change", render);
 toInput.addEventListener("change", render);
 

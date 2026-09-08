@@ -47,6 +47,7 @@ from .render import (
     render_span,
     to_png,
 )
+from .sky import SkyError, parse_location, parse_sky
 from .strings import LanguageError, parse_language
 
 DEFAULT_TZ = os.environ.get("WALLCAL_TZ", "UTC")
@@ -246,6 +247,18 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         str, Query(alias="qt", max_length=240, description="your own line, instead of the rotation")
     ] = "",
     quote_author: Annotated[str, Query(alias="qa", max_length=60, description="who said it")] = "",
+    sky: Annotated[
+        str, Query(alias="sky", description="band under the grid: none, moon, sun or both")
+    ] = "none",
+    lat: Annotated[
+        float | None, Query(ge=-90, le=90, description="latitude, kept to two decimals")
+    ] = None,
+    lon: Annotated[
+        float | None, Query(ge=-180, le=180, description="longitude, kept to two decimals")
+    ] = None,
+    day_length: Annotated[
+        bool, Query(alias="dl", description="day length and the change from yesterday")
+    ] = True,
     numbering: Annotated[
         str, Query(alias="wk", description="iso week number, or n from the span start")
     ] = "iso",
@@ -271,6 +284,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
 
     try:
         size = resolve_size(device, width, height)
+        sky_mode = parse_sky(sky)
         style = Style(
             background=parse_color(background) if background else parse_theme(theme),
             dot=parse_color(dot) if dot else None,
@@ -296,6 +310,9 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             quote=quote,
             quote_text=quote_text,
             quote_author=quote_author,
+            sky=sky_mode,
+            location=parse_location(sky_mode, lat, lon),
+            day_length=day_length,
         )
         week_numbering = WeekNumbering(numbering.strip().lower())
     except (
@@ -311,6 +328,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         InkError,
         LanguageError,
         ProductionError,
+        SkyError,
     ) as exc:
         raise HTTPException(400, str(exc)) from exc
     except ValueError as exc:
@@ -336,8 +354,12 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     except (ModeError, GridError, ValueError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    # The zone is in there for the sun line alone: it is the one thing drawn on
+    # a local clock, so two zones on the same date are two different images.
+    # `Cache-Control` is public, and a shared cache holding one ETag for both
+    # would be entitled to hand one of them the other's picture.
     fingerprint = hashlib.sha256(
-        f"{mode}|{size}|{style}|{grid.start}|{grid.end}|{grid.today}"
+        f"{mode}|{size}|{style}|{zone.key}|{grid.start}|{grid.end}|{grid.today}"
         f"|{grid.rows}|{grid.columns}|{grid.week_labels}|{preview}".encode()
     ).hexdigest()[:32]
     etag = f'"{fingerprint}"'
@@ -354,7 +376,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
 
     try:
         with render_slot():
-            image = render_span(grid, size[0], size[1], style)
+            image = render_span(grid, size[0], size[1], style, zone)
             if preview:
                 overlay(image, style, now.date())
             payload = to_png(image)

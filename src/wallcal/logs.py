@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import time
 from typing import Any
+from urllib.parse import unquote_plus
 
 from starlette.requests import Request
 from starlette.types import ASGIApp
@@ -25,6 +27,30 @@ LOGGER = "wallcal.access"
 # A query string carries the whole wallpaper, quotes included, and a quote can
 # be long. Enough to identify the link, not enough to fill the log with prose.
 QUERY_LIMIT = 300
+
+# A coordinate next to an IP address turns one line of `docker logs` into a
+# person and a place, and this service holds no personal data anywhere else.
+# The image keeps the two decimals it was asked for; the log keeps a town.
+COORDINATE = re.compile(r"\b(lat|lon)=([^&]*)")
+
+
+def _coarse(query: str) -> str:
+    """Every coordinate in the query, rounded to one decimal.
+
+    The query arrives raw, so the value has to be decoded before it can be read
+    as a number: `lat=+51.5074` carries a literal plus, which is a space by the
+    time the handler parses it, and `lat=51%2E5074` hides its own point. Both
+    are accepted by the endpoint, so both have to be blunted here. Anything that
+    does not parse as a number is not a coordinate, and is left as it was.
+    """
+
+    def blunt(hit: re.Match[str]) -> str:
+        try:
+            return f"{hit[1]}={float(unquote_plus(hit[2])):.1f}"
+        except ValueError:
+            return hit[0]
+
+    return COORDINATE.sub(blunt, query)
 
 
 def configure() -> None:
@@ -97,7 +123,7 @@ class AccessLog:
             "bytes": size,
         }
         if query:
-            record["query"] = query[:QUERY_LIMIT]
+            record["query"] = _coarse(query)[:QUERY_LIMIT]
         agent = request.headers.get("user-agent")
         if agent:
             record["ua"] = agent[:200]

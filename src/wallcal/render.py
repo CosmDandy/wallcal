@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, timedelta, tzinfo
 from enum import Enum
 from functools import lru_cache
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from . import layout as layout_mod
 from . import quotes, workdays
@@ -22,7 +22,8 @@ from .fonts import FONT_LIGHT, FONT_REGULAR, load_font
 from .grid import DAYS_PER_WEEK, CellState, Grid, month_end
 from .markers import Marker
 from .palette import RGB, Ramp, lerp, mix, ramp_for
-from .strings import days_left, month, week_of, weekday
+from .sky import SkyMode, moon_phase, sun_day
+from .strings import days_left, month, polar, week_of, weekday
 
 SUPERSAMPLE = 8
 
@@ -40,6 +41,18 @@ FADE_STEPS = 40  # quantised so the sprite tiles stay cacheable
 FADE_CURVE = 0.7
 QUOTE_MAX_LINES = 3
 QUOTE_ALPHA = 0.62  # against the footer tone: present, still quieter than the dots
+
+# The moon is a hair over the type beside it and, on a two-weeks-to-a-row span,
+# within a couple of pixels of a grid dot — which is why it reads as one more
+# dot rather than as an icon. Tied to the type and not to `lay.dot`: on a
+# one-year span the dot falls to 30px, and a 30px moon beside 40px numerals is
+# a bullet point.
+MOON_RATIO = 1.05  # moon diameter as a fraction of the sky type size
+SKY_GAP = 0.55  # space between the moon and the line, in type sizes
+# Quantised for the same reason FADE_STEPS is: the masks are then reused across
+# the days either side. At 42px one step is 0.66px, which is under the
+# anti-aliasing.
+MOON_STEPS = 64
 
 
 class HeaderMode(Enum):
@@ -205,6 +218,9 @@ class Style:
     quote: bool = False  # rotate a line of the day under the grid
     quote_text: str = ""  # replaces the rotation when set
     quote_author: str = ""
+    sky: SkyMode = SkyMode.NONE  # a moon, a sun line, or both, in the same band
+    location: tuple[float, float] | None = None  # rounded latitude and longitude
+    day_length: bool = True  # the day's length and how much it changed overnight
     clock: str = "std"  # how much room the lock screen clock needs above
     ink: str = "bright"  # strong end of the ramp: bright or cream
     language: str = "en"
@@ -213,9 +229,25 @@ class Style:
     shift: int = 0  # nudge the whole block, in percent of screen height
 
     @property
+    def shows_sky(self) -> bool:
+        """`qt` outranks the sky, the sky outranks `q`: most specific ask wins."""
+        return self.sky is not SkyMode.NONE and not self.quote_text
+
+    @property
     def shows_quote(self) -> bool:
         """Your own line stands on its own: writing one is asking for a quote."""
-        return self.quote or bool(self.quote_text)
+        return bool(self.quote_text) or (self.quote and not self.shows_sky)
+
+    @property
+    def shows_band(self) -> bool:
+        """Whether the strip under the grid is reserved at all.
+
+        One slot, one occupant, and the reserve is the same size whichever it
+        is. Sizing it to its contents would mean the field shifting half an
+        inch when a caption is swapped for a moon, and the wallpaper is the
+        dots: they do not move because something under them changed.
+        """
+        return self.shows_quote or self.shows_sky
 
     @property
     def ramp(self) -> Ramp:
@@ -247,8 +279,14 @@ def _dot_mask(size: int, shape: Shape, corner: int) -> Image.Image:
     return mask.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def render_span(grid: Grid, width: int, height: int, style: Style) -> Image.Image:
-    """Draw the whole wallpaper. Raises LayoutError if the span cannot fit."""
+def render_span(
+    grid: Grid, width: int, height: int, style: Style, zone: tzinfo = UTC
+) -> Image.Image:
+    """Draw the whole wallpaper. Raises LayoutError if the span cannot fit.
+
+    `zone` is only read by the sun line, which is the one thing here printed on
+    a local clock rather than derived from the span.
+    """
     lay = layout_mod.compute(
         width,
         height,
@@ -257,7 +295,7 @@ def render_span(grid: Grid, width: int, height: int, style: Style) -> Image.Imag
         groups=grid.columns // DAYS_PER_WEEK,
         split=style.split,
         labels=style.labels,
-        quote=style.shows_quote,
+        quote=style.shows_band,
         footer=style.footer is not FooterMode.NONE,
         clock=style.clock,
         shift=style.shift,
@@ -299,6 +337,8 @@ def render_span(grid: Grid, width: int, height: int, style: Style) -> Image.Imag
             else quotes.for_day(grid.today)
         )
         _draw_quote(image, lay, style, chosen)
+    elif style.shows_sky:
+        _draw_sky(image, lay, style, grid.today, zone)
     if style.footer is not FooterMode.NONE:
         _draw_footer(image, lay, style, (_footer_line(grid, style.footer, style.language),))
     if style.bar is not BarMode.NONE:
@@ -595,6 +635,154 @@ def _draw_quote(
             fill=mix(color, style.background, 0.75),
             anchor="mm",
         )
+
+
+def _draw_sky(
+    image: Image.Image,
+    lay: layout_mod.Layout,
+    style: Style,
+    today: date,
+    zone: tzinfo,
+) -> None:
+    """The band under the grid: a drawn moon, the day's sun line, or both.
+
+    Set to the grid's own width, so it squares up with the field the way the
+    quote does, and centred in the same slot — the two never share it.
+    """
+    line = (
+        _sky_line(today, style, style.location, zone)
+        if style.sky.draws_sun and style.location
+        else ""
+    )
+    size = lay.sky_font
+    while size > 10 and _sky_width(line, size, style.sky) > lay.grid_width:
+        size -= 1
+
+    font = load_font(FONT_REGULAR, size)
+    moon = round(size * MOON_RATIO) if style.sky.draws_moon else 0
+    gap = round(size * SKY_GAP) if moon and line else 0
+    left = (lay.width - (moon + gap + (font.getlength(line) if line else 0))) / 2
+
+    if moon:
+        _paste_moon(image, style, today, round(left), lay.quote_center_y, moon)
+    if line:
+        ImageDraw.Draw(image).text(
+            (left + moon + gap, lay.quote_center_y),
+            line,
+            font=font,
+            fill=style.ramp.footer,
+            anchor="lm",
+        )
+
+
+def _sky_width(line: str, size: int, mode: SkyMode) -> float:
+    moon = round(size * MOON_RATIO) if mode.draws_moon else 0
+    if not line:
+        return moon
+    return (
+        moon
+        + (round(size * SKY_GAP) if moon else 0)
+        + load_font(FONT_REGULAR, size).getlength(line)
+    )
+
+
+def _sky_line(today: date, style: Style, location: tuple[float, float], zone: tzinfo) -> str:
+    """`06:12 – 19:48 · 13:36 +2:14`, or the polar words when there is neither.
+
+    The duration would read as a third time of day on its own, two tokens away
+    from two clock times; the delta after it is what says it is not one. So the
+    two are printed together or not at all.
+    """
+    lat, lon = location
+    day = sun_day(today, lat, lon)
+    if day.rise is None or day.set is None or day.length is None:
+        return polar(style.language, day.up)
+
+    rise, fall = day.rise.astimezone(zone), day.set.astimezone(zone)
+    line = f"{rise:%H:%M} \u2013 {fall:%H:%M}"
+    # A day that runs past local midnight — the fortnight either side of a polar
+    # spell — leaves the pair reading backwards, `01:31 – 00:02`. The length is
+    # the only thing that says that is a 23-hour day and not a 23-minute one, so
+    # it goes in even when `dl` asked for no numbers.
+    if not style.day_length and rise.date() == fall.date():
+        return line
+    length = round(day.length.total_seconds())
+    line += f" · {length // 3600}:{length // 60 % 60:02d}"
+    if not style.day_length:
+        return line
+
+    # Only when yesterday had a rise and a set of its own: across the boundary
+    # into a polar spell there is nothing to have changed from, and a jump
+    # printed there would be a number the reader cannot check.
+    before = sun_day(today - timedelta(days=1), lat, lon).length
+    if before is not None:
+        step = length - round(before.total_seconds())
+        sign = "+" if step >= 0 else "\u2212"
+        line += f" {sign}{abs(step) // 60}:{abs(step) % 60:02d}"
+    return line
+
+
+def _paste_moon(
+    image: Image.Image, style: Style, today: date, left: int, center_y: int, size: int
+) -> None:
+    """The moon at its phase for `today`, in two tones off the grid's own ramp.
+
+    The disc is an unlived day and the lit part is a day just gone, which makes
+    a new moon an empty dot and a full one a filled dot: the moon runs the same
+    ramp the field runs, and does not have to be told it belongs there.
+    """
+    fraction, waxing = moon_phase(today)
+    # Cusps point left for a waxing moon seen from the north, and the southern
+    # hemisphere sees the same moon the other way up. Its tilt is not modelled:
+    # the parallactic angle needs a time of day, which a per-day image has not
+    # got, and at this size it would not be readable anyway.
+    south = style.location is not None and style.location[0] < 0
+    disc, lit = _moon_masks(size, round(fraction * MOON_STEPS), waxing != south)
+
+    ramp = style.ramp
+    top = center_y - size // 2
+    image.paste(Image.new("RGB", (size, size), ramp.future), (left, top), disc)
+    image.paste(Image.new("RGB", (size, size), ramp.strong), (left, top), lit)
+
+
+@lru_cache(maxsize=32)
+def _moon_masks(size: int, step: int, lit_right: bool) -> tuple[Image.Image, Image.Image]:
+    """The whole disc and the lit part of it, as paste masks.
+
+    The terminator is the great circle between the two hemispheres, and from
+    here it projects to a half-ellipse sharing the disc's poles: past half lit
+    it bulges beyond the half-disc and is added to it, short of half it cuts
+    in. The folk construction — one disc minus another of the same radius — has
+    no gibbous at all, and giving it one means an arc of the wrong curvature
+    through the cusps: three pixels of error on a sixty-pixel moon, at exactly
+    the phases anyone looks at.
+    """
+    big = size * SUPERSAMPLE
+    box = (0, 0, big - 1, big - 1)
+    disc = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(disc).ellipse(box, fill=255)
+
+    lit = Image.new("L", (big, big), 0)
+    pen = ImageDraw.Draw(lit)
+    pen.pieslice(box, start=-90, end=90, fill=255)  # the sunward half
+    fraction = step / MOON_STEPS
+    half = abs(big / 2 * (2 * fraction - 1))
+    # Under a pixel wide Pillow refuses the ellipse outright, and a terminator
+    # that thin is a straight line anyway — which is what the half-disc already
+    # is.
+    if half >= 1:
+        pen.ellipse(
+            (big / 2 - half, 0, big / 2 + half, big - 1),
+            fill=255 if fraction > 0.5 else 0,
+        )
+    lit = ImageChops.multiply(lit, disc)
+    if not lit_right:
+        lit = lit.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+
+    return (
+        disc.resize((size, size), Image.Resampling.LANCZOS),
+        lit.resize((size, size), Image.Resampling.LANCZOS),
+    )
 
 
 def _footer_line(grid: Grid, mode: FooterMode, language: str) -> str:

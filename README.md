@@ -121,6 +121,10 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `q`  | a line for the day under the grid  | `0`     | `1`, `0`                                  |
 | `qt` | your own line, instead of the day's| —       | up to 240 characters                      |
 | `qa` | who said it                        | —       | up to 60 characters                       |
+| `sky`| the band under the grid            | `none`  | `none`, `moon`, `sun`, `both`             |
+| `lat`| latitude, for `sun` and `both`     | —       | `-90`…`90`, kept to two decimals          |
+| `lon`| longitude, same                    | —       | `-180`…`180`, kept to two decimals        |
+| `dl` | day length and the overnight change| `1`     | `1`, `0`                                  |
 | `wk` | what the left-edge numbers count   | `iso`   | `iso` week of year, `n` from span start   |
 | `pv` | draw the lock screen mock-up       | `0`     | `1`, `0`                                  |
 | `tz` | zone that decides "today"          | env     | IANA name, e.g. `Europe/Moscow`           |
@@ -171,6 +175,33 @@ someone else opens in the builder with the names still on it — a row of
 anonymous colours is not something a second person can edit. Thirty-two markers
 is the cap and past it the request is refused: the whole configuration is the
 URL, and a URL nobody can paste has stopped being one.
+
+`sky` puts one band under the grid. `moon` draws the moon at tonight's phase,
+`sun` prints the day — `06:12 – 19:48 · 13:36 +2:14`, sunrise, sunset, how long
+the day is and how much it changed overnight — and `both` puts them side by
+side. `dl=0` drops the length and the change and leaves the two times. The band
+stands in the quote's slot and never splits it: your own line (`qt`) wins, then
+the sky, then the rotation (`q`).
+
+The moon is drawn rather than set in type — the bundled Inter has no moon glyph
+— and in the field's own two tones: the disc takes the colour of a day not yet
+lived, the lit part the colour of a day just gone, so a new moon is an empty dot
+and a full one a filled dot. It needs no location at all, since the phase is the
+same for the whole planet; give it one and it only decides which way the
+crescent turns.
+
+`sky=sun` and `sky=both` need `lat` and `lon`, both or neither. They are kept to
+two decimals — about a kilometre, worth under three seconds of sunrise below
+60° — and the access log blunts them to one decimal before writing the query
+down. There is no default city and no IP lookup: a wrong sunrise is worse than
+no sunrise, because a wrong one is believed. Above the Arctic Circle the line
+says `Polar night` or `Midnight sun` in words, and the overnight change is left
+off on the days either side of the boundary, where there is nothing to have
+changed from. Reckon on a minute of accuracy below 72°, and on the words rather
+than the dates above it.
+
+The times are printed on `tz`'s clock, so `tz` is part of the `ETag`: two zones
+on the same date are two different pictures.
 
 The response may be cached until midnight in the requested zone, and no longer —
 that is exactly when the drawing changes. Send the `ETag` back as
