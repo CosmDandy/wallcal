@@ -7,6 +7,8 @@ here and nothing else.
 
 from __future__ import annotations
 
+from datetime import date
+
 LANGUAGES = ("en", "ru")
 
 WEEKDAYS: dict[str, tuple[str, ...]] = {
@@ -19,6 +21,23 @@ MONTHS: dict[str, tuple[str, ...]] = {
            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"),
     "ru": ("ЯНВ", "ФЕВ", "МАР", "АПР", "МАЙ", "ИЮН",
            "ИЮЛ", "АВГ", "СЕН", "ОКТ", "НОЯ", "ДЕК"),
+}  # fmt: skip
+
+
+# The mock-up's date line, which is the one place a whole word is written out.
+# strftime would take these from the process locale, which is the container's,
+# not the reader's.
+FULL_WEEKDAYS: dict[str, tuple[str, ...]] = {
+    "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
+    "ru": ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"),
+}
+
+# Genitive: a Russian date reads "11 сентября", never "11 сентябрь".
+FULL_MONTHS: dict[str, tuple[str, ...]] = {
+    "en": ("January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December"),
+    "ru": ("января", "февраля", "марта", "апреля", "мая", "июня",
+           "июля", "августа", "сентября", "октября", "ноября", "декабря"),
 }  # fmt: skip
 
 
@@ -52,6 +71,13 @@ def month(language: str, number: int) -> str:
 
 def polar(language: str, sun_up: bool) -> str:
     return POLAR[language][0 if sun_up else 1]
+
+
+def long_date(language: str, when: date) -> str:
+    """The date as the lock screen writes it: weekday, day, month."""
+    weekday_name = FULL_WEEKDAYS[language][when.weekday()]
+    month_name = FULL_MONTHS[language][when.month - 1]
+    return f"{weekday_name}, {when.day} {month_name}"
 
 
 def days_left(language: str, count: int) -> str:

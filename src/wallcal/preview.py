@@ -16,6 +16,7 @@ from . import layout
 from .fonts import FONT_LIGHT, FONT_REGULAR, load_font
 from .palette import RGB, mix
 from .render import Style
+from .strings import long_date
 
 DATE_Y = 0.093
 DATE_SIZE = 0.017
@@ -83,7 +84,7 @@ def overlay(image: Image.Image, style: Style, today: date) -> None:
     chrome = mix(style.strong, style.background, CHROME_ALPHA)
     draw.text(
         (width / 2, DATE_Y * height),
-        today.strftime("%A, %-d %B"),
+        long_date(style.language, today),
         font=load_font(FONT_REGULAR, round(DATE_SIZE * height)),
         fill=chrome,
         anchor="mm",
