@@ -1143,7 +1143,7 @@ const RU = {
   "Markers": "Метки",
   // rows
   "Mode": "Режим", "From": "С", "To": "По", "Presets": "Быстрый выбор",
-  "Size": "Размер", "Nudge": "Сдвиг", "Mock-up": "Макет", "Shape": "Форма",
+  "Size": "Размер", "Nudge": "Сдвиг", "Shape": "Форма",
   "Weeks per row": "Недель в ряд", "Week gap": "Зазор недель",
   "Month breaks": "Разрывы месяцев", "Fade the past": "Гасить прошлое",
   "Axes": "Оси", "Placement": "Расположение", "Top axis": "Верхняя ось",
@@ -1177,16 +1177,16 @@ const RU = {
   "Locate": "Определить", "+ Marker": "+ Метка",
   // the dock
   "Endpoint": "Ссылка", "Copy": "Копировать", "Share": "Поделиться",
-  "Open": "Открыть", "Copied": "Скопировано", "Press ⌘/Ctrl+C": "Нажмите ⌘/Ctrl+C",
+  "Copied": "Скопировано", "Press ⌘/Ctrl+C": "Нажмите ⌘/Ctrl+C",
   // the calendar
   "Close": "Закрыть", "Back to days": "К дням", "Back to months": "К месяцам",
+  "Mo": "Пн", "Tu": "Вт", "We": "Ср", "Th": "Чт", "Fr": "Пт", "Sa": "Сб", "Su": "Вс",
   "Pick a date": "Выберите дату", "Previous month": "Предыдущий месяц",
   "Next month": "Следующий месяц", "Previous year": "Предыдущий год",
   "Next year": "Следующий год", "Earlier years": "Годы раньше",
   "Later years": "Годы позже",
   // the masthead and the sheet
   "How this works": "Как это работает",
-  "Close": "Закрыть",
   "Source on GitHub": "Исходный код на GitHub",
   "MIT licence": "Лицензия MIT",
   "Calendar wallpapers for a phone, rendered straight from a URL":
@@ -1212,7 +1212,6 @@ const RU = {
   "Asking the browser…": "Спрашиваем браузер…",
   "The browser refused — type a latitude and longitude.":
     "Браузер отказал — введите широту и долготу.",
-  "many Android phones": "многие телефоны на Android",
   "Choose a phone": "Выберите телефон",
 };
 
@@ -1225,6 +1224,7 @@ function t(text) {
 const MONTHS_RU = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
                    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
 
 const OPTIONS = {
   sh: { def:"0",    items:[] },  // a slider, not buttons — see the range input
@@ -1430,10 +1430,18 @@ function paintScreen() {
     return false;
   }
   // The shell takes the shape of the screen it is showing, so an unusual phone
-  // looks unusual here too rather than being quietly letterboxed.
+  // looks unusual here too rather than being quietly letterboxed. A new shape
+  // is a new fit: on a phone the stage has to measure it again.
   phone.style.setProperty("--ratio", (size.h / size.w).toFixed(4));
+  if (live) fitPhone();
   const sharing = IPHONES.filter(([, w, h]) => w === size.w && h === size.h);
-  model.value = sharing.length ? `${size.w}x${size.h}` : "";
+  // Leave a chosen phone alone while its screen still matches; only a size that
+  // belongs to some other phone, or to none, moves the selection.
+  const showing = IPHONES[Number(model.value)];
+  if (!showing || showing[1] !== size.w || showing[2] !== size.h) {
+    const found = IPHONES.findIndex(([, w, h]) => w === size.w && h === size.h);
+    model.value = found < 0 ? "" : String(found);
+  }
   // "iPhone 16 · 15 Pro · 15": the word is said once, the way a list of them
   // is read aloud.
   sizeHint.textContent = sharing.length
@@ -1529,7 +1537,7 @@ function paintYears() {
                       data-year="${year}">${year}</button>`;
   }
   calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1}`,
-                            "Earlier years", "Later years", false) +
+                            t("Earlier years"), t("Later years"), false) +
     `<div class="cal-picks">${cells}</div>` +
     foot(`<button type="button" class="action small" data-down>${t("Back to months")}</button>`);
 }
@@ -1543,7 +1551,7 @@ function paintMonths() {
     cells += `<button type="button" class="cal-pick${on ? " on" : ""}"
                       data-month="${index}">${name.slice(0, 3)}</button>`;
   });
-  calendar.innerHTML = head(`${year}`, "Previous year", "Next year") +
+  calendar.innerHTML = head(`${year}`, t("Previous year"), t("Next year")) +
     `<div class="cal-picks">${cells}</div>` +
     foot(`<button type="button" class="action small" data-down>${t("Back to days")}</button>`);
 }
@@ -1574,7 +1582,7 @@ function paintDays() {
 
   calendar.innerHTML =
     head(`${monthNames()[calMonth.getMonth()]} ${calMonth.getFullYear()}`,
-         "Previous month", "Next month") +
+         t("Previous month"), t("Next month")) +
     `<div class="cal-grid">${names}${cells}</div>` +
     foot(`<button type="button" class="action small" data-date="${today}">${t("Today")}</button>`);
 }
@@ -1762,14 +1770,14 @@ function paintLanguage() {
 
   for (const node of document.querySelectorAll(
     "#controls legend, #controls .row > label, .dock .label span, .copy-label, " +
-    ".rail button, #controls .action, .bio, .marker-foot .action, " +
+    "#controls .action, .bio, .marker-foot .action, .marker-pull span, " +
     ".help-head strong, #help-close, #model-any, " +
     "#modes button, #presets button, .colophon a")) {
     // Only leaves: a date field is an .action too, and writing text into it
     // would take its icon and its label with it.
     if (node.children.length === 0) node.textContent = t(original(node));
   }
-  for (const node of document.querySelectorAll("#controls .seg button")) {
+  for (const node of document.querySelectorAll("#controls .seg button, .rail button")) {
     if (node.dataset.en) node.textContent = t(node.dataset.en);
   }
   for (const node of document.querySelectorAll("[placeholder]")) {
@@ -1814,10 +1822,6 @@ function paintSelection() {
   });
 }
 
-// The mock-up is a viewing aid, not part of the wallpaper: this page always
-// asks for it, and it is never in the link you hand to a phone.
-const PREVIEW_ONLY = new Set(["pv"]);
-
 function query({ forPreview = false } = {}) {
   const parts = mode === "span" ? [`f=${fromInput.value}`, `t=${toInput.value}`] : [];
   const size = screenSize();
@@ -1825,7 +1829,6 @@ function query({ forPreview = false } = {}) {
     parts.push(`w=${size.w}`, `h=${size.h}`);
   }
   for (const [key, spec] of Object.entries({ ...OPTIONS, ...SWATCHES })) {
-    if (PREVIEW_ONLY.has(key)) continue;
     // A sun with nowhere to rise is a 400, and a link that answers 400 is worse
     // than a link with one knob missing. The hint under the panel says why.
     if (key === "sky" && skyFault()) continue;
@@ -1890,20 +1893,24 @@ function restore() {
   return Boolean(pick("f") && pick("t"));
 }
 
-for (const [name, w, h] of IPHONES) {
+// Keyed by row, not by size: several phones share a screen, and a select set
+// by value would jump to the first of them and contradict the person who just
+// picked one of the others.
+IPHONES.forEach(([name], index) => {
   const option = document.createElement("option");
-  option.value = `${w}x${h}`;
+  option.value = String(index);
   option.textContent = name;
   model.append(option);
-}
+});
 model.addEventListener("change", () => {
-  const [w, h] = model.value.split("x");
-  if (!w) return;
-  screenW.value = w;
-  screenH.value = h;
+  const phone = IPHONES[Number(model.value)];
+  if (!phone) return;
+  screenW.value = phone[1];
+  screenH.value = phone[2];
   render();
 });
 
+let live = false;             // set once the sheet and its measurements exist
 let timer = null;
 function render() {
   paintSelection();
@@ -1988,19 +1995,19 @@ function flash(button, label, good) {
 document.getElementById("copy").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (await copyText(urlBox.textContent)) {
-    flash(button, "Copied", true);
+    flash(button, t("Copied"), true);
   } else {
     selectUrl();
-    flash(button, "Press ⌘/Ctrl+C", false);
+    flash(button, t("Press ⌘/Ctrl+C"), false);
   }
 });
 
 document.getElementById("share").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (await copyText(location.href)) {
-    flash(button, "Copied", true);
+    flash(button, t("Copied"), true);
   } else {
-    flash(button, "Press ⌘/Ctrl+C", false);
+    flash(button, t("Press ⌘/Ctrl+C"), false);
   }
 });
 
@@ -2189,14 +2196,16 @@ function markerRow(marker) {
     <div class="marker-head">
       <input type="text" class="marker-name" maxlength="${MARKER_LABEL_MAX}"
              placeholder="${t("Name it — Gym, Rent, Holiday")}"
-             aria-label="${t("Marker name")}">
+             data-en-placeholder="Name it — Gym, Rent, Holiday"
+             aria-label="${t("Marker name")}" data-en-aria-label="Marker name">
       <span class="seg">${chips("kind", MARKER_KINDS)}</span>
       <button type="button" class="action small marker-drop"
-              aria-label="${t("Remove this marker")}">✕</button>
+              aria-label="${t("Remove this marker")}"
+              data-en-aria-label="Remove this marker">✕</button>
     </div>
     <div class="marker-body">
       <span class="seg" data-rule="days">${chips("weekday",
-        weekdayNames().map((label, index) => [index, label]))}</span>
+        WEEKDAYS_EN.map((label, index) => [index, label]))}</span>
       <span class="seg" data-rule="month">${chips("monthday", months)}</span>
       <span class="datefield" data-rule="date">
         <button type="button" class="action small marker-date" data-slot="date"
@@ -2222,7 +2231,8 @@ function markerRow(marker) {
     </div>
     <label class="marker-pull" data-rule-pull>
       <input type="checkbox" class="marker-pull-box">
-      <span>${t("Pull back off days nobody works")}</span>
+      <span data-en="Pull back off days nobody works">${
+        t("Pull back off days nobody works")}</span>
     </label>`;
 
   row.querySelectorAll("input[type=date]").forEach((field) => {
@@ -2378,10 +2388,9 @@ if (window.ResizeObserver) {
 // ── The sheet ───────────────────────────────────────────────────────────────
 // A phone is one screen, not two columns, so the settings ride on a sheet you
 // drag up over a pinned mock-up — the gesture every map app on the thing
-// already taught. Three rests: the link alone, half and half, or settings with
-// the preview shrunk to a thumbnail at the top. The document itself does not
-// scroll here; the sheet does, which is what keeps the preview from sliding
-// away while you work.
+// already taught. Two rests: the link alone at the bottom, the settings at
+// half. The document itself does not scroll here; the sheet does, which is
+// what keeps the preview from sliding away while you work.
 const mobile = window.matchMedia("(max-width:700px)");
 const sheet = document.getElementById("sheet");
 const sheetBody = document.getElementById("sheet-body");
@@ -2419,7 +2428,10 @@ function stageHeight() {
 // largest — and every size after that is a transform. One animated property
 // instead of two means a rest change and a zoom are the same motion.
 function baseScale() {
-  return Math.max(0.14, Math.min(stageFor(peekHeight()) / 852, (window.innerWidth - 28) / 393));
+  // The shell takes the shape of whatever screen is set, so its height is 393
+  // by that ratio — not the 852 of the phone this page happens to open on.
+  const tall = 393 * (parseFloat(getComputedStyle(phone).getPropertyValue("--ratio")) || 2.168);
+  return Math.max(0.14, Math.min(stageFor(peekHeight()) / tall, (window.innerWidth - 28) / 393));
 }
 
 function settle(state) {
@@ -2477,8 +2489,9 @@ function frame() {
   const tallBox = phone.offsetHeight, wideBox = phone.offsetWidth;
   if (!tallBox) return;
   // The phone as it would sit with nothing magnified: never taller than the
-  // stage, never wider than the screen.
-  const fit = Math.min(stage / (852 * base), (window.innerWidth - 28) / (393 * base));
+  // stage, never wider than the screen. Measured off the box, so an unusual
+  // screen is fitted by its own shape.
+  const fit = Math.min(stage / tallBox, (window.innerWidth - 28) / wideBox);
   const panel = panels[chosen];
   const zoomed = sheet.dataset.state === "half";
   // original() holds the English legend whatever the page is showing.
@@ -2489,9 +2502,10 @@ function frame() {
     return;
   }
   const pad = 14;                       // air around the magnified device
-  // The screen is inset 12px in a 393x852 shell, so a fraction of the picture
-  // is not the same fraction of the device.
-  const SCREEN_TOP = 12 / 852, SCREEN_TALL = 828 / 852;
+  // The screen is inset 12px of layout in the shell, so a fraction of the
+  // picture is not the same fraction of the device.
+  const bezel = 12 * (parseFloat(getComputedStyle(phone).getPropertyValue("--s")) || 1);
+  const SCREEN_TOP = bezel / tallBox, SCREEN_TALL = (tallBox - bezel * 2) / tallBox;
   const wanted = (stage - pad * 2) / (view.tall * SCREEN_TALL * tallBox);
   // Never wider than the screen: both edges of the device stay in view.
   const scale = Math.min(Math.max(fit, wanted), (window.innerWidth - pad * 2) / wideBox);
@@ -2542,7 +2556,10 @@ function buildRail() {
   panels.forEach((panel, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = t(original(panel.querySelector("legend")));
+    // The English name is kept on the chip: writing the translation and then
+    // reading it back as the original would freeze the rail in one language.
+    button.dataset.en = original(panel.querySelector("legend"));
+    button.textContent = t(button.dataset.en);
     button.addEventListener("click", () => {
       if (index === chosen) return;
       const leaving = panels[chosen];
@@ -2597,6 +2614,9 @@ grip.addEventListener("pointerdown", (event) => {
   // browser starts selecting it — which cancels the pointer mid-gesture, so
   // the sheet would open and never close again.
   event.preventDefault();
+  // Cleared here rather than in the click handler: a pointer the system takes
+  // away never reaches a click, and the flag would sit set over the keyboard.
+  pointerHandled = false;
   grip.setPointerCapture(event.pointerId);
   grabbedAt = event.clientY;
   grabbedHeight = sheet.offsetHeight;
@@ -2659,6 +2679,7 @@ window.addEventListener("resize", () => {
 });
 buildRail();
 placeDock();
+live = true;                  // from here a change of shape can be measured
 // Long enough for the last panel's delay plus its half second.
 setTimeout(() => document.documentElement.classList.add("settled"), 1100);
 
