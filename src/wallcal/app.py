@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import logs, quotes
+from . import __version__, logs, quotes
 from .devices import DeviceError
 from .devices import resolve as resolve_size
 from .grid import DEFAULT_WEEKS_PER_ROW, GridError, WeekNumbering
@@ -390,12 +390,16 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
 
 
 @app.get("/api/quotes")
-def quote_list() -> dict[str, object]:
+def quote_list(response: Response) -> dict[str, object]:
     """The whole rotation plus today's pick, so the builder can shuffle offline."""
     # The same zone the wallpaper uses. On `date.today()` this drifted a day
     # from the render whenever WALLCAL_TZ differed from the container clock,
     # and the builder page then previewed a line the phone would not get.
-    line, author = quotes.for_day(datetime.now(_zone(DEFAULT_TZ)).date())
+    now = datetime.now(_zone(DEFAULT_TZ))
+    line, author = quotes.for_day(now.date())
+    # The rotation is a file and today's pick turns over at midnight, so this
+    # answer is good until then — and it is asked for again on every visit.
+    response.headers["Cache-Control"] = f"public, max-age={_seconds_to_midnight(now)}"
     return {
         "today": {"line": line, "author": author},
         "quotes": [{"line": text, "author": who} for text, who in rotation()],
@@ -407,7 +411,25 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Read once, not per request: it is a single file that only changes on deploy.
+# The version goes in with it, which is what lets the page ask for a preview the
+# browser can keep between visits and still get a new one after an upgrade.
+_PAGE = (
+    files("wallcal.assets")
+    .joinpath("index.html")
+    .read_text(encoding="utf-8")
+    .replace("__WALLCAL_VERSION__", __version__)
+)
+_PAGE_ETAG = f'"{hashlib.sha256(_PAGE.encode()).hexdigest()[:32]}"'
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
+def index(request: Request) -> Response:
     """The builder page: every knob of the URL API, with a live preview."""
-    return files("wallcal.assets").joinpath("index.html").read_text(encoding="utf-8")
+    # no-cache, not no-store: the browser keeps the page and asks whether it is
+    # still good. A revisit then costs one round trip and no bytes, and a deploy
+    # still lands immediately.
+    headers = {"Cache-Control": "no-cache", "ETag": _PAGE_ETAG}
+    if request.headers.get("if-none-match") == _PAGE_ETAG:
+        return Response(status_code=304, headers=headers)
+    return HTMLResponse(_PAGE, headers=headers)
