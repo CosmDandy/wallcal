@@ -6,6 +6,10 @@
 <title>Wallcal — build your wallpaper</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='16' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='24' cy='8' r='3' fill='%23586e75'/%3E%3Ccircle cx='8' cy='16' r='3' fill='%23586e75'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23cb4b16'/%3E%3Ccircle cx='24' cy='16' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='8' cy='24' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='16' cy='24' r='3' fill='%2393a1a1'/%3E%3Ccircle cx='24' cy='24' r='3' fill='%2393a1a1'/%3E%3C/svg%3E">
 <style>
+  /* Registered, so it animates: an unregistered custom property is a string to
+     the engine, and a string cannot be interpolated. */
+  @property --fog { syntax:"<length>"; inherits:true; initial-value:0px; }
+
   /* The page is dressed like cosmdandy.dev: Solarized on a dotted ground, glass
      panels, one accent glow. The wallpapers themselves are drawn from the same
      Solarized ramp, so the builder cannot drift away from what it renders.
@@ -19,7 +23,7 @@
     --base0:#839496; --base1:#93a1a1; --base2:#eee8d5; --base3:#fdf6e3;
     --orange:#cb4b16; --green:#859900;
 
-    /* One rounding scale for the whole page. Anything that needs a radius picks
+  /* One rounding scale for the whole page. Anything that needs a radius picks
        a step from here, which is what keeps a chip, a panel and the dock from
        each rounding by a different amount. */
     --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:22px;
@@ -30,6 +34,11 @@
        forty. --fade is the theme swap: every colour has to travel together, or
        background, text and borders arrive out of step and it shows. */
     --ease:cubic-bezier(.32,.72,0,1);
+    /* The page's own curve drops half the distance in the first sixth of the
+       time — right for a chip lighting up, wrong for a whole device moving:
+       the zoom read as a snap with a long tail. This one spends the time it is
+       given. */
+    --zoom:.62s; --ease-zoom:cubic-bezier(.45,.05,.25,1);
     --spring:cubic-bezier(.34,1.56,.64,1);
     --fade:.45s var(--ease);
     --tap:.2s var(--ease);
@@ -56,6 +65,7 @@
     --shadow-hi:0 8px 32px -4px rgba(88,110,117,.24),
                 0 0 80px -20px rgba(42,161,152,.10);
 
+    --link:#268bd2;
     --focus:rgba(38,139,210,.6);
     --sel-bg:rgba(38,139,210,.25); --sel-fg:#073642;
     --aurora:.55;
@@ -88,6 +98,7 @@
     --shadow-hi:0 8px 32px -4px rgba(0,0,0,.8),
                 0 0 80px -20px rgba(42,161,152,.06);
 
+    --link:#59c2ff;
     --focus:rgba(0,220,255,.5);
     --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
     --aurora:.95;
@@ -114,6 +125,7 @@
       --shadow-hi:0 8px 32px -4px rgba(0,0,0,.8),
                   0 0 80px -20px rgba(42,161,152,.06);
 
+      --link:#59c2ff;
       --focus:rgba(0,220,255,.5);
       --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
       --aurora:.95;
@@ -169,11 +181,28 @@
   }
   /* The name is the quieter half of the line: this is the project's page, not a
      signature on it. Same string, same setting as on cosmdandy.dev. */
-  h1 .who { font-weight:400; color:var(--ink-dim); text-decoration:none;
-             transition:color var(--tap); }
-  h1 .who:hover { color:var(--heading); }
+  /* The masthead is two weights of the same ink, not a pair of links painted
+     blue: up here the layout already says they are the title. */
+  h1 a.lnk { color:var(--heading); }
+  h1 a.lnk.who { font-weight:400; color:var(--ink-dim); }
+  h1 a.lnk:hover { opacity:1; color:var(--ink); }
   h1 .sep { color:var(--ink-faint); margin:0 .4em; font-weight:400; }
   .bio { margin:7px 0 0; font-size:.82rem; color:var(--ink-dim); }
+
+  /* Every link on the page wears the same mark: the one blue nothing else on
+     the page uses. No rule under the text — it fought the type. */
+  a.lnk { color:var(--link); text-decoration:none; transition:opacity var(--tap); }
+  a.lnk:hover { opacity:.72; }
+  a.lnk:focus-visible { outline:2px solid var(--focus); outline-offset:3px;
+                        border-radius:var(--r-xs); }
+
+  /* Who made it, under what terms, and where the source is — at the foot of the
+     settings, which is the end of the page on a phone as much as on a desk. */
+  .colophon {
+    grid-column:1 / -1; margin:6px 2px 0; font-size:12px; color:var(--ink-faint);
+    display:flex; flex-wrap:wrap; align-items:center; gap:0 .45em;
+  }
+  .colophon .sep { opacity:.6; }
 
   main {
     position:relative; z-index:2; max-width:1240px; margin:0 auto;
@@ -201,6 +230,8 @@
   .panel.above { z-index:5; }
   fieldset.split { display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
                    column-gap:30px; align-content:start; }
+  /* `hidden` has to win over the panels that set a display of their own. */
+  .panel[hidden] { display:none; }
   @media (max-width:640px) { fieldset.split { grid-template-columns:1fr; } }
   /* Ten swatches do not fit half a panel, and wrapping them onto a second line
      makes the pair of columns sit at different heights. */
@@ -289,6 +320,12 @@
   .action.copied { background:var(--green); border-color:var(--green); color:var(--base3); }
   .action.failed { background:var(--orange); border-color:var(--orange); color:var(--base3); }
 
+  /* Square, so it reads as an icon rather than as a word with a box round it. */
+  .theme { flex-shrink:0; display:grid; place-items:center; width:36px; height:36px; padding:0; }
+  .lang { font-size:12px; font-weight:600; letter-spacing:.04em; }
+  .theme .ico { display:block; grid-area:1/1; }
+  .theme .ico[hidden] { display:none; }
+
   aside { position:sticky; top:24px; }
 
   /* Phone shell: all CSS, no artwork. Proportions and radii follow a real
@@ -300,7 +337,12 @@
     background:radial-gradient(ellipse at 50% 45%, var(--stage-glow) 0%, transparent 70%);
     filter:blur(46px);
   }
+  :root.dragging aside, :root.dragging .phone, :root.dragging .sheet,
+  :root.dragging .sheet::before { transition:none; }
   .phone {
+    /* The framing scales the device, not the picture inside it: a screenshot
+       growing behind a frame that stays put reads as a bug, not as a zoom. */
+    transform-origin:50% 50%; transition:transform var(--zoom) var(--ease-zoom);
     --s:.74; --ratio:2.168;  /* 852 / 393 — the shape of an iPhone 16 */
     position:relative; width:calc(393px * var(--s));
     height:calc(393px * var(--s) * var(--ratio));
@@ -336,6 +378,10 @@
     position:absolute; inset:calc(12px * var(--s)); overflow:hidden; background:#000;
     border-radius:calc(47px * var(--s)); z-index:1;
   }
+  /* Half open, the preview frames the part of the wallpaper the open panel
+     changes: the dot field for the grid, the labels for the labels, the strip
+     under them for the footer. The whole phone when the panel is about the
+     whole phone. */
   .shot { display:block; width:100%; height:100%; object-fit:cover; }
   .screen::after {
     content:""; position:absolute; inset:0; pointer-events:none;
@@ -412,6 +458,48 @@
   }
   .datebtn svg { flex-shrink:0; opacity:.7; }
   .datebtn .day { font-variant-numeric:tabular-nums; }
+
+  /* ── Help ─────────────────────────────────────────────────────────────────
+     Everything the page cannot say in a label: what the two buttons take, and
+     the four taps that make a phone set the picture by itself every morning. */
+  .scrim {
+    position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.38);
+    backdrop-filter:blur(2px); animation:fadeIn .22s var(--ease) both;
+  }
+  @keyframes fadeIn { from { opacity:0; } }
+  .help {
+    position:fixed; z-index:60; top:50%; left:50%; transform:translate(-50%, -50%);
+    width:min(470px, calc(100vw - 28px)); max-height:min(74dvh, 640px);
+    display:flex; flex-direction:column;
+    padding:16px 18px 6px; border:1px solid var(--edge); border-top-color:var(--edge-top);
+    border-radius:var(--r-lg); background:var(--sheet);
+    box-shadow:0 0 0 1px var(--ring), var(--shadow-hi);
+    animation:helpIn .28s var(--ease) both;
+  }
+  @keyframes helpIn { from { opacity:0; transform:translate(-50%, -46%) scale(.98); } }
+  /* display:flex in the rule above outranks what `hidden` asks for. */
+  .help[hidden], .scrim[hidden] { display:none; }
+  .help-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .help-head strong { font-size:1rem; color:var(--heading); }
+  .help-body { overflow-y:auto; margin-top:10px; padding-bottom:14px;
+               font-size:13px; line-height:1.55; color:var(--ink); }
+  .help-body p { margin:0 0 10px; }
+  .help-body ol { margin:0 0 10px; padding-left:20px; }
+  .help-body li { margin-bottom:6px; }
+  .help-body b { color:var(--heading); font-weight:600; }
+  /* Square, because it holds a mark rather than a word. */
+  .action.icon { padding:5px 9px; }
+  .action.icon svg { display:block; }
+
+  /* The phone list sits with the two numbers it fills in. */
+  #model {
+    flex:1 1 150px; min-width:0; max-width:190px;
+    font:inherit; font-size:13px; color:var(--ink);
+    padding:7px 9px; border:1px solid var(--edge); border-top-color:var(--edge-top);
+    border-radius:var(--r-sm); background:var(--field);
+    transition:border-color var(--tap), color var(--tap);
+  }
+  #model:hover { border-color:var(--edge-hot); color:var(--heading); }
 
   .cal {
     position:absolute; z-index:30; top:calc(100% + 8px); left:0; width:266px;
@@ -494,7 +582,19 @@
      The page assembles rather than appearing: masthead, phone, panels in turn,
      dock last. Only on load — a re-render must never replay it. */
   @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+  @keyframes panelOut { to { opacity:0; transform:translateY(-8px); } }
+  @keyframes panelIn { from { opacity:0; transform:translateY(10px); } }
   @keyframes dockUp { from { opacity:0; transform:translateY(26px); } to { opacity:1; transform:none; } }
+  /* Dropped once the page has arrived: showing a panel again would otherwise
+     replay its entrance, and switching panels is the main gesture here. */
+  :root.settled header, :root.settled aside, :root.settled .panel,
+  :root.settled .dock-inner { animation:none; }
+  /* One panel at a time on a phone: the old one has to leave before the new one
+     arrives, or the sheet jumps to hold both. Written after the rule above,
+     which switches the entrance animations off once the page has settled — the
+     two carry the same weight, so the later one has to be this. */
+  :root .panel.leaving { animation:panelOut .26s var(--ease) both; }
+  :root .panel.entering { animation:panelIn .36s var(--ease) both; }
   header, aside, .panel { animation:rise .5s var(--ease) both; }
   aside { animation-delay:.06s; }
   .panel:nth-of-type(1) { animation-delay:.10s; }
@@ -562,6 +662,186 @@
   .panel:nth-of-type(8) { animation-delay:.38s; }
   .panel:nth-of-type(9) { animation-delay:.42s; }
 
+
+  /* ── The phone ───────────────────────────────────────────────────────────
+     Below this width the page stops being two columns beside each other and
+     becomes one screen: the mock-up pinned at the top, the settings on a sheet
+     you drag up over it. Scrolling the document is off — the sheet scrolls
+     instead, which is what keeps the preview in place while you work.
+
+     The sheet is nothing on a wide screen: display:contents, and the grid sees
+     the form exactly as it did. */
+  .sheet { display:contents; }
+  .grip, .rail { display:none; }
+  .sheet-body { display:contents; }
+
+  @media (max-width:700px) {
+    html, body { height:100%; overflow:hidden; }
+    body { overscroll-behavior:none; }
+
+    /* One line, no strapline: the masthead is a label here, not an introduction. */
+    header { padding:10px 16px 4px; }
+    .bar { gap:10px; align-items:center; }
+    h1 { font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    h1 .who { font-size:.85rem; }
+    h1 .sep { margin:0 .3em; }
+    .bio { display:none; }
+    #ui-theme { flex-shrink:0; }
+
+    /* ── The rail ─────────────────────────────────────────────────────────
+       Seven panels do not browse on a phone. The rail names them and shows one
+       at a time — the same move as the editing modes under a photo: pick the
+       thing you are changing, then change it, with the preview never leaving
+       the screen. */
+    .rail {
+      display:flex; gap:6px; flex-shrink:0; overflow-x:auto; scrollbar-width:none;
+      padding:2px 14px 10px; scroll-snap-type:x proximity;
+      -webkit-overflow-scrolling:touch; touch-action:pan-x;
+    }
+    .rail::-webkit-scrollbar { display:none; }
+    .rail button {
+      flex:0 0 auto; scroll-snap-align:center; white-space:nowrap;
+      border:1px solid var(--edge); border-radius:999px; padding:7px 14px;
+      background:transparent; color:var(--ink-dim); font-size:13px; line-height:1.2;
+      transition:color var(--tap), border-color var(--tap), background var(--tap),
+                 transform .28s var(--spring);
+    }
+    .rail button:active { transform:scale(.94); }
+    .rail button[aria-pressed="true"] {
+      background:var(--ink); border-color:var(--ink); color:var(--page);
+    }
+
+    main { display:block; max-width:none; padding:0; height:100%; }
+    /* Pinned, not sticky: a sticky column still sits in the flow, and the
+       mock-up ended up hanging behind the translucent panels, which is what
+       made the settings unreadable. */
+    /* A fixed window for the mock-up, so a magnified phone is cut by the stage
+       rather than climbing over the masthead. */
+    aside { position:fixed; top:var(--head-h, 52px); left:0; right:0; bottom:0; z-index:1;
+            padding-bottom:var(--sheet-h, 46dvh); overflow:hidden;
+            display:flex; justify-content:center; align-items:center; }
+    /* Magnified, the device runs past the top of its window. The cut is hidden
+       by fading the stage itself out — a painted band would have to guess what
+       is behind it, and over the aurora it guessed black. The mask needs no
+       colour at all, and the length it fades over is a registered property, so
+       it can be transitioned like any other. */
+    aside {
+      -webkit-mask-image:linear-gradient(180deg, transparent 0, #000 var(--fog), #000 100%);
+              mask-image:linear-gradient(180deg, transparent 0, #000 var(--fog), #000 100%);
+      transition:--fog var(--zoom) var(--ease-zoom),
+                 padding-bottom var(--zoom) var(--ease-zoom);
+    }
+    :root[data-zoom="on"] aside { --fog:52px; }
+    /* The bottom needs no line either: the sheet's own colour rises off its
+       edge and takes the cut with it. */
+    .sheet::before {
+      content:""; position:absolute; left:0; right:0; bottom:100%; height:56px;
+      background:linear-gradient(0deg, var(--sheet) 0%, transparent 100%);
+      opacity:0; transition:opacity var(--zoom) var(--ease-zoom); pointer-events:none;
+    }
+    :root[data-zoom="on"] .sheet::before { opacity:1; }
+    aside .hint { display:none; }
+    .stage { padding:0; margin:0; }
+    .stage::before { inset:0; }
+    /* Scale is set from script: the phone takes whatever height the sheet is
+       not using, down to a thumbnail you can still read a colour off. */
+    .phone { --s:.5; }
+
+    /* The sheet changes height rather than sliding: a sheet pushed down by a
+       transform keeps its full height, half of it below the screen, and the
+       settings inside scroll into a part of it you cannot reach. With height
+       the scrollable area is always exactly what you can see, so a panel can
+       be read through at any rest, not only when the sheet is all the way up. */
+    .sheet {
+      display:flex; flex-direction:column; position:fixed; z-index:20;
+      left:0; right:0; bottom:0;
+      --peek:120px; height:var(--h, 46dvh);
+      background:var(--sheet); border-top:1px solid var(--edge-top);
+      border-radius:var(--r-lg) var(--r-lg) 0 0;
+      box-shadow:0 -8px 32px -8px rgba(0,0,0,.45), 0 0 0 1px var(--ring);
+      transition:height var(--zoom) var(--ease-zoom),
+                 border-radius var(--zoom) var(--ease-zoom);
+      touch-action:none;
+    }
+    .sheet[data-state="peek"] { --h:var(--peek); }
+    .sheet[data-state="half"] { --h:46dvh; }
+    /* Rounded corners over a fade leave two lit notches where the fade ends and
+       the sheet has not started yet. Under the fade the sheet is square. */
+    :root[data-zoom="on"] .sheet { border-radius:0; }
+    /* The bottom rest is the link and nothing else: the rail and the settings
+       are past the edge of a 120px sheet, and half a row of chips hanging off
+       the bottom of the screen reads as a mistake. */
+    .rail, .sheet-body { transition:opacity .28s var(--ease); }
+    .sheet[data-state="peek"] .rail,
+    .sheet[data-state="peek"] .sheet-body { opacity:0; pointer-events:none; }
+    .sheet.dragging { transition:none; user-select:none; -webkit-user-select:none; }
+
+    .grip {
+      display:block; flex-shrink:0; width:100%; padding:10px 0 8px;
+      border:none; background:none; cursor:grab;
+      /* Without this the browser reads the first millimetre of a drag as the
+         start of a scroll and cancels the pointer — the sheet would open but
+         never close again. */
+      touch-action:none;
+    }
+    .grip::before {
+      content:""; display:block; width:38px; height:4px; margin:0 auto;
+      border-radius:2px; background:var(--ink-faint); opacity:.5;
+    }
+    .grip:active { cursor:grabbing; }
+
+    .sheet-body {
+      display:block; flex:1; min-height:0; overflow-y:auto;
+      overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+      padding:4px 14px calc(18px + env(safe-area-inset-bottom));
+      touch-action:pan-y;
+    }
+    /* The sheet shows one panel, and it gets the whole width: the general
+       one-column rule starts at 640px, which left a column of nothing between
+       641 and 700. */
+    #controls { gap:12px; grid-template-columns:1fr; }
+    /* Inside the sheet a panel is not floating over anything — the sheet is
+       opaque. The glass then had nothing to refract but its own shadow, and
+       scrolling dragged a pale halo along the panel's edge. */
+    .panel { backdrop-filter:none; box-shadow:none; background:none; border:none;
+             padding:26px 2px 2px; }
+    .panel:hover { box-shadow:none; border:none; }
+    legend { top:4px; left:2px; }
+
+    /* Inside the sheet the dock is a row, not a floating slab: it already has
+       the sheet's own surface under it. */
+    .dock { position:static; padding:0 14px 10px; flex-shrink:0; }
+    .dock-inner {
+      border:none; background:none; box-shadow:none; backdrop-filter:none;
+      padding:0; gap:10px; flex-direction:column; align-items:stretch;
+    }
+    .dock-actions { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; }
+    /* At the bottom rest the sheet is the link and these three: they have to be
+       small enough that the whole row still fits inside the peek. */
+    .dock-actions .action {
+      justify-content:center; padding:5px 6px; font-size:12.5px; line-height:1.35;
+    }
+    /* Only the tick that is already out: sizing every svg in the row would
+       give the collapsed one a width, and the word would sit off centre from
+       the moment the page loads. */
+    .dock-actions .action.copied .tick { width:13px; height:13px; margin-right:6px; }
+    /* A popover hung under its field falls off the bottom of a scrolling sheet
+       — measured at 947px on an 852px screen. On a phone it becomes what it
+       already behaves like: a dialog in the middle of the screen, above
+       everything, dismissed by a tap outside exactly as before. */
+    .cal, .cal.flip {
+      position:fixed; top:50%; left:50%; right:auto; z-index:60;
+      width:min(300px, calc(100vw - 32px));
+      transform:translate(-50%, -46%) scale(.98); transform-origin:center;
+    }
+    .cal.open, .cal.flip.open { transform:translate(-50%, -50%); }
+
+    /* One line, always: on a phone the link is there to be copied, not read,
+       and three wrapped lines of it push the settings off the screen. */
+    #url { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .dock .label { margin-bottom:5px; }
+  }
+
   .hint { font-size:12px; color:var(--ink-faint); margin:12px 2px 0; }
   .row + .hint { margin:2px 0 10px; }
   @media (min-width:561px) { .row + .hint { margin-left:130px; } }
@@ -579,15 +859,28 @@
   <div class="aurora" aria-hidden="true"></div>
   <div class="bar">
     <div class="ident">
-      <h1><a class="who" href="https://cosmdandy.dev" target="_blank"
-             rel="noopener">Timofey Kondrashin</a><span class="sep">·</span>Wallcal</h1>
+      <h1><a class="who lnk" href="https://cosmdandy.dev" target="_blank"
+             rel="noopener">Timofey Kondrashin</a><span class="sep">·</span><a
+             class="lnk" href="https://github.com/CosmDandy/wallcal" target="_blank"
+             rel="noopener">Wallcal</a></h1>
       <p class="bio">Calendar wallpapers for a phone, rendered straight from a URL</p>
     </div>
-    <span class="seg" id="ui-theme">
-      <button type="button" data-ui="auto" title="Follow the system">Auto</button>
-      <button type="button" data-ui="light" title="Light">☀</button>
-      <button type="button" data-ui="dark" title="Dark">☾</button>
-    </span>
+    <button type="button" class="action theme lang" id="ui-lang" aria-label="Language">EN</button>
+    <button type="button" class="action theme" id="ui-theme" aria-label="Theme: follow the system">
+      <svg class="ico" data-ui="auto" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <path d="M12 3.6a8.4 8.4 0 0 0 0 16.8z" fill="currentColor"/>
+      </svg>
+      <svg class="ico" data-ui="light" viewBox="0 0 24 24" width="17" height="17" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true" hidden>
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2.4M12 19v2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M2.6 12h2.4M19 12h2.4M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"/>
+      </svg>
+      <svg class="ico" data-ui="dark" viewBox="0 0 24 24" width="17" height="17" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true" hidden>
+        <path d="M20.2 14.6A8.6 8.6 0 0 1 9.4 3.8a8.6 8.6 0 1 0 10.8 10.8z"/>
+      </svg>
+    </button>
   </div>
 </header>
 
@@ -607,12 +900,16 @@
         </div>
       </div>
     </figure>
-    <p class="hint">
-      Point a daily iOS Shortcut or MacroDroid macro at the link below.
-      Turn the mock-up off before you do — <code>pv=1</code> draws the clock and buttons.
+    <p class="hint" id="shortcut-hint">
+      Point a daily iOS Shortcut at the link below. The clock and the buttons are
+      the mock-up around the picture, not part of it.
     </p>
   </aside>
-  <form id="controls">
+  <div class="sheet" id="sheet" data-state="half">
+    <button type="button" class="grip" id="grip" aria-label="Resize the settings panel"></button>
+    <div class="rail" id="rail"></div>
+    <div class="sheet-body" id="sheet-body">
+    <form id="controls">
     <fieldset class="panel">
       <legend>Span</legend>
       <div class="row">
@@ -665,6 +962,9 @@
           <span class="times">×</span>
           <input type="number" id="ph" min="320" max="4096" step="1" inputmode="numeric">
           <span class="unit">px</span>
+          <select id="model" aria-label="Phone">
+            <option value="" id="model-any">Choose a phone</option>
+          </select>
         </span>
       </div>
       <p class="hint" id="size-hint"></p>
@@ -676,7 +976,6 @@
           <button type="button" class="action small" id="sh-reset">Reset</button>
         </span>
       </div>
-      <div class="row"><label>Mock-up</label><span class="seg" data-key="pv"></span></div>
     </fieldset>
 
     <fieldset class="panel">
@@ -763,13 +1062,22 @@
         <span class="hint" id="marker-cap"></span>
       </div>
     </fieldset>
-  </form>
+    <p class="colophon">
+      <a class="lnk" href="https://github.com/CosmDandy/wallcal" target="_blank"
+         rel="noopener">Source on GitHub</a><span class="sep">·</span><a class="lnk"
+         href="https://github.com/CosmDandy/wallcal/blob/master/LICENSE" target="_blank"
+         rel="noopener">MIT licence</a><span class="sep">·</span><span
+         class="rights">© 2026 Timofey Kondrashin</span>
+    </p>
+    </form>
+    </div>
+  </div>
 </main>
 
 <div class="dock" id="dock">
   <div class="dock-inner">
     <div class="dock-text">
-      <span class="label"><i class="live-dot"></i>Endpoint</span>
+      <span class="label"><i class="live-dot"></i><span>Endpoint</span></span>
       <div id="url"></div>
     </div>
     <div class="dock-actions">
@@ -785,14 +1093,140 @@
              stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.4 6.4 12.3 13.5 4"/></svg>
         <span class="copy-label">Share</span>
       </button>
-      <button class="action" id="open">Open</button>
+      <button class="action icon" id="help-btn" aria-label="How this works" title="How this works">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9.2"/>
+          <path d="M9.4 9.2a2.7 2.7 0 1 1 3.4 2.6c-.5.2-.8.6-.8 1.1v.7"/>
+          <path d="M12 17h.01"/>
+        </svg>
+      </button>
     </div>
   </div>
 </div>
 
+<div class="scrim" id="help-scrim" hidden></div>
+<div class="help" id="help" role="dialog" aria-modal="true" aria-label="How this works" hidden>
+  <div class="help-head">
+    <strong>How this works</strong>
+    <button type="button" class="action small" id="help-close">Close</button>
+  </div>
+  <div class="help-body" id="help-body">
+    <p>Wallcal draws the calendar as a picture. The address always renders
+       <b>today</b>, so a wallpaper set once is never out of date.</p>
+    <p><b>On an iPhone, once:</b></p>
+    <ol>
+      <li>Shortcuts → Automation → New → <b>Time of Day</b>. Pick an hour, daily, and
+          <b>Run Immediately</b> with “Notify When Run” off.</li>
+      <li>Add the action <b>Get Contents of URL</b> and paste what <b>Copy</b> gave you.</li>
+      <li>Add <b>Set Wallpaper Photo</b>, aim it at the <b>Lock Screen</b>, and turn
+          “Show Preview” off.</li>
+    </ol>
+    <p>You do not have to wait for that hour to come round: press <b>▶</b> on the
+       automation and it runs straight away.</p>
+  </div>
+</div>
+
 <script>
+// ── Language ────────────────────────────────────────────────────────────────
+// The wallpaper has spoken Russian since the beginning; the page that builds it
+// did not, which left a Russian speaker reading `lang=ru` in English to find the
+// switch. One setting now turns both: the picture and the page around it.
+//
+// Keyed by the English string rather than by an invented id — the page is the
+// only consumer, and a table of "Weeks per row" → "Недель в ряд" is readable
+// against the markup it translates.
+const RU = {
+  // panels
+  "Span": "Период", "Screen": "Экран", "Grid": "Сетка", "Labels": "Подписи",
+  "Highlights": "Выделения", "Theme": "Оформление", "Footer": "Подвал",
+  "Markers": "Метки",
+  // rows
+  "Mode": "Режим", "From": "С", "To": "По", "Presets": "Быстрый выбор",
+  "Size": "Размер", "Nudge": "Сдвиг", "Shape": "Форма",
+  "Weeks per row": "Недель в ряд", "Week gap": "Зазор недель",
+  "Month breaks": "Разрывы месяцев", "Fade the past": "Гасить прошлое",
+  "Axes": "Оси", "Placement": "Расположение", "Top axis": "Верхняя ось",
+  "Week numbers": "Номера недель", "Language": "Язык", "Week starts": "Неделя с",
+  "Production calendar": "Производственный календарь",
+  "Weekends": "Выходные", "Month ends": "Концы месяцев", "Today": "Сегодня",
+  "Month end": "Конец месяца", "Background": "Фон", "Dots": "Точки",
+  "Line": "Строка", "Progress rule": "Полоса прогресса",
+  "Quote of the day": "Цитата дня", "Sun and moon": "Солнце и луна",
+  "Day length": "Долгота дня", "Your own line": "Своя строка",
+  "Attributed to": "Автор", "Location": "Место",
+  "Pull back off days nobody works": "Сдвигать с нерабочих дней",
+  // buttons and values
+  "Custom": "Свой", "This year": "Этот год", "This quarter": "Этот квартал",
+  "This month": "Этот месяц", "Next 90 days": "90 дней",
+  "On": "Вкл", "Off": "Выкл", "Circle": "Круг", "Rounded": "Квадрат",
+  "Left": "Слева", "Right": "Справа", "Split": "По краям",
+  "ISO week": "ISO", "From start": "С начала", "MO TU": "ПН ВТ", "None": "Нет",
+  "Monday": "Понедельник", "Sunday": "Воскресенье", "Russia": "Россия",
+  "Bright": "Яркие", "Cream": "Кремовые",
+  "Paper": "Бумага", "Ink": "Чернила", "Graphite": "Графит",
+  "White": "Белый", "Black": "Чёрный", "Teal": "Бирюза",
+  "Ultramarine": "Ультрамарин", "Pink": "Розовый", "Onyx": "Оникс",
+  "Desert": "Пустыня", "Natural": "Титан",
+  "Moon": "Луна", "Sun": "Солнце", "Both": "Оба",
+  "Year": "Год", "Quarter": "Квартал", "Month": "Месяц",
+  "116 days left": "116 дней осталось", "Week 3 of 13": "Неделя 3 из 13",
+  "Weekdays": "Дни недели", "Day of month": "Число месяца",
+  "One date": "Одна дата", "A stretch": "Промежуток",
+  "Reset": "Сброс", "Shuffle": "Наугад", "Rotation": "Ротация",
+  "Locate": "Определить", "+ Marker": "+ Метка",
+  // the dock
+  "Endpoint": "Ссылка", "Copy": "Копировать", "Share": "Поделиться",
+  "Copied": "Скопировано", "Press ⌘/Ctrl+C": "Нажмите ⌘/Ctrl+C",
+  // the calendar
+  "Close": "Закрыть", "Back to days": "К дням", "Back to months": "К месяцам",
+  "Mo": "Пн", "Tu": "Вт", "We": "Ср", "Th": "Чт", "Fr": "Пт", "Sa": "Сб", "Su": "Вс",
+  "Pick a date": "Выберите дату", "Previous month": "Предыдущий месяц",
+  "Next month": "Следующий месяц", "Previous year": "Предыдущий год",
+  "Next year": "Следующий год", "Earlier years": "Годы раньше",
+  "Later years": "Годы позже",
+  // the masthead and the sheet
+  "How this works": "Как это работает",
+  "Source on GitHub": "Исходный код на GitHub",
+  "MIT licence": "Лицензия MIT",
+  "Calendar wallpapers for a phone, rendered straight from a URL":
+    "Календарные обои для телефона, отрисованные прямо из ссылки",
+  "Resize the settings panel": "Размер панели настроек",
+  "Copy a link to this builder, settings and all":
+    "Скопировать ссылку на этот билдер со всеми настройками",
+  "Marker name": "Название метки", "Remove this marker": "Удалить метку",
+  "Name it — Gym, Rent, Holiday": "Название — зал, аренда, отпуск",
+  "leave empty to use the rotation": "пусто — работает ротация",
+  "optional": "необязательно", "lat": "широта", "lon": "долгота",
+  // sentences the script writes
+  "No dates in the link — it rolls over on its own.":
+    "Дат в ссылке нет — период переходит сам.",
+  "Native pixels, not points.": "Физические пиксели, не точки.",
+  "Your own line, fixed in the link. Rotation is off.":
+    "Своя строка, зашитая в ссылку. Ротация выключена.",
+  "It changes every day.": "Меняется каждый день.",
+  "Sunrise needs a place. Press Locate, or type a pair.":
+    "Восходу нужно место. Нажмите «Определить» или введите пару координат.",
+  "This browser will not share a location; type a pair instead.":
+    "Браузер не отдаёт координаты — введите их вручную.",
+  "Asking the browser…": "Спрашиваем браузер…",
+  "The browser refused — type a latitude and longitude.":
+    "Браузер отказал — введите широту и долготу.",
+  "Choose a phone": "Выберите телефон",
+};
+
+let uiLang = "en";
+
+function t(text) {
+  return uiLang === "ru" ? (RU[text] ?? text) : text;
+}
+
+const MONTHS_RU = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+const WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+
 const OPTIONS = {
-  pv: { def:"0", init:"1", items:[["1","On"],["0","Off"]] },
   sh: { def:"0",    items:[] },  // a slider, not buttons — see the range input
   ink:{ def:"bright", items:[["bright","Bright"],["cream","Cream"]] },
   s:  { def:"c",    items:[["c","Circle"],["r","Rounded"]] },
@@ -846,14 +1280,38 @@ for (const [key, spec] of Object.entries(SWATCHES)) state[key] = spec.def;
 const SCREEN = { w: 1179, h: 2556 };        // iPhone 16, and the API's default
 const SCREEN_MIN = 320, SCREEN_MAX = 4096;  // devices.py: MIN_SIDE, MAX_SIDE
 const SCREEN_PIXELS = 4_200_000;            // devices.py: MAX_PIXELS
-const KNOWN_SCREENS = [
-  [1179, 2556, "iPhone 16 · 16 Plus is 1290×2796"],
-  [1206, 2622, "iPhone 16 Pro"],
-  [1320, 2868, "iPhone 16 Pro Max"],
-  [1290, 2796, "iPhone 14/15 Pro Max"],
-  [1170, 2532, "iPhone 12–15"],
-  [1125, 2436, "iPhone X / XS / 11 Pro"],
-  [1080, 2340, "many Android phones"],
+// Every iPhone from the 11 up, newest first, in the pixels its screen really
+// has — not points, which is what Apple prints and what people paste in by
+// mistake. Phones sharing a panel share a size; the picture cannot tell them
+// apart, and the list says so rather than pretending each one is different.
+const IPHONES = [
+  ["iPhone 17 Pro Max", 1320, 2868],
+  ["iPhone 17 Pro", 1206, 2622],
+  ["iPhone 17", 1206, 2622],
+  ["iPhone 16 Pro Max", 1320, 2868],
+  ["iPhone 16 Pro", 1206, 2622],
+  ["iPhone 16 Plus", 1290, 2796],
+  ["iPhone 16", 1179, 2556],
+  ["iPhone 16e", 1170, 2532],
+  ["iPhone 15 Pro Max", 1290, 2796],
+  ["iPhone 15 Pro", 1179, 2556],
+  ["iPhone 15 Plus", 1290, 2796],
+  ["iPhone 15", 1179, 2556],
+  ["iPhone 14 Pro Max", 1290, 2796],
+  ["iPhone 14 Pro", 1179, 2556],
+  ["iPhone 14 Plus", 1284, 2778],
+  ["iPhone 14", 1170, 2532],
+  ["iPhone 13 Pro Max", 1284, 2778],
+  ["iPhone 13 Pro", 1170, 2532],
+  ["iPhone 13", 1170, 2532],
+  ["iPhone 13 mini", 1080, 2340],
+  ["iPhone 12 Pro Max", 1284, 2778],
+  ["iPhone 12 Pro", 1170, 2532],
+  ["iPhone 12", 1170, 2532],
+  ["iPhone 12 mini", 1080, 2340],
+  ["iPhone 11 Pro Max", 1242, 2688],
+  ["iPhone 11 Pro", 1125, 2436],
+  ["iPhone 11", 828, 1792],
 ];
 
 const STORE_KEY = "wallcal.builder";
@@ -876,6 +1334,7 @@ let rotation = { today: null, quotes: [] };
 const toInput = document.getElementById("to");
 const urlBox = document.getElementById("url");
 const shot = document.getElementById("shot");
+const model = document.getElementById("model");
 const screenW = document.getElementById("pw");
 const screenH = document.getElementById("ph");
 const sizeHint = document.getElementById("size-hint");
@@ -918,14 +1377,16 @@ function applyPreset(name) {
 // still what holds and parses the value — but hidden behind a button, and this
 // is what drops down instead. One instance serves both fields: it is moved into
 // whichever .datefield was opened, so its position needs no measuring.
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
-                     "July", "August", "September", "October", "November", "December"];
-const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const MONTH_NAMES_EN = ["January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS_EN = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const monthNames = () => (uiLang === "ru" ? MONTHS_RU : MONTH_NAMES_EN);
+const weekdayNames = () => (uiLang === "ru" ? WEEKDAYS_RU : WEEKDAYS_EN);
 
 const calendar = document.createElement("div");
 calendar.className = "cal";
 calendar.setAttribute("role", "dialog");
-calendar.setAttribute("aria-label", "Pick a date");
+calendar.setAttribute("aria-label", t("Pick a date"));
 let calField = null;   // the <input type=date> being edited
 let calButton = null;
 let calMonth = null;   // the first of the month on show
@@ -969,10 +1430,23 @@ function paintScreen() {
     return false;
   }
   // The shell takes the shape of the screen it is showing, so an unusual phone
-  // looks unusual here too rather than being quietly letterboxed.
+  // looks unusual here too rather than being quietly letterboxed. A new shape
+  // is a new fit: on a phone the stage has to measure it again.
   phone.style.setProperty("--ratio", (size.h / size.w).toFixed(4));
-  const known = KNOWN_SCREENS.find(([w, h]) => w === size.w && h === size.h);
-  sizeHint.textContent = known ? known[2] : "Native pixels, not points.";
+  if (live) fitPhone();
+  const sharing = IPHONES.filter(([, w, h]) => w === size.w && h === size.h);
+  // Leave a chosen phone alone while its screen still matches; only a size that
+  // belongs to some other phone, or to none, moves the selection.
+  const showing = IPHONES[Number(model.value)];
+  if (!showing || showing[1] !== size.w || showing[2] !== size.h) {
+    const found = IPHONES.findIndex(([, w, h]) => w === size.w && h === size.h);
+    model.value = found < 0 ? "" : String(found);
+  }
+  // "iPhone 16 · 15 Pro · 15": the word is said once, the way a list of them
+  // is read aloud.
+  sizeHint.textContent = sharing.length
+    ? sharing.map(([name], index) => index ? name.replace("iPhone ", "") : name).join(" · ")
+    : t("Native pixels, not points.");
   return true;
 }
 
@@ -1011,7 +1485,7 @@ function paintSky() {
   latField.classList.toggle("bad", fault);
   lonField.classList.toggle("bad", fault);
   if (state.sky === "none") skyHint.textContent = "";
-  else if (fault) skyHint.textContent = "Sunrise needs a place. Press Locate, or type a pair.";
+  else if (fault) skyHint.textContent = t("Sunrise needs a place. Press Locate, or type a pair.");
   else if (state.sky === "moon") {
     skyHint.textContent = "The phase is the same for everyone; a location only " +
                           "decides which way the crescent turns.";
@@ -1049,7 +1523,7 @@ function head(title, back, forward, climbs = true) {
 function foot(first) {
   return `<div class="cal-foot">
        ${first}
-       <button type="button" class="action small" data-close>Close</button>
+       <button type="button" class="action small" data-close>${t("Close")}</button>
      </div>`;
 }
 
@@ -1063,23 +1537,23 @@ function paintYears() {
                       data-year="${year}">${year}</button>`;
   }
   calendar.innerHTML = head(`${first} – ${first + YEAR_PAGE - 1}`,
-                            "Earlier years", "Later years", false) +
+                            t("Earlier years"), t("Later years"), false) +
     `<div class="cal-picks">${cells}</div>` +
-    foot('<button type="button" class="action small" data-down>Back to months</button>');
+    foot(`<button type="button" class="action small" data-down>${t("Back to months")}</button>`);
 }
 
 function paintMonths() {
   const picked = calField.value ? parseISO(calField.value) : null;
   const year = calMonth.getFullYear();
   let cells = "";
-  MONTH_NAMES.forEach((name, index) => {
+  monthNames().forEach((name, index) => {
     const on = picked && picked.getFullYear() === year && picked.getMonth() === index;
     cells += `<button type="button" class="cal-pick${on ? " on" : ""}"
                       data-month="${index}">${name.slice(0, 3)}</button>`;
   });
-  calendar.innerHTML = head(`${year}`, "Previous year", "Next year") +
+  calendar.innerHTML = head(`${year}`, t("Previous year"), t("Next year")) +
     `<div class="cal-picks">${cells}</div>` +
-    foot('<button type="button" class="action small" data-down>Back to days</button>');
+    foot(`<button type="button" class="action small" data-down>${t("Back to days")}</button>`);
 }
 
 function paintDays() {
@@ -1090,8 +1564,9 @@ function paintDays() {
   const chosen = calField.value;
   const today = iso(new Date());
 
-  const names = WEEKDAYS.slice(weekStart === 6 ? 6 : 0)
-    .concat(weekStart === 6 ? WEEKDAYS.slice(0, 6) : [])
+  const week = weekdayNames();
+  const names = week.slice(weekStart === 6 ? 6 : 0)
+    .concat(weekStart === 6 ? week.slice(0, 6) : [])
     .map((name) => `<span class="cal-wd">${name}</span>`).join("");
 
   let cells = "";
@@ -1106,10 +1581,10 @@ function paintDays() {
   }
 
   calendar.innerHTML =
-    head(`${MONTH_NAMES[calMonth.getMonth()]} ${calMonth.getFullYear()}`,
-         "Previous month", "Next month") +
+    head(`${monthNames()[calMonth.getMonth()]} ${calMonth.getFullYear()}`,
+         t("Previous month"), t("Next month")) +
     `<div class="cal-grid">${names}${cells}</div>` +
-    foot(`<button type="button" class="action small" data-date="${today}">Today</button>`);
+    foot(`<button type="button" class="action small" data-date="${today}">${t("Today")}</button>`);
 }
 
 function paintCalendar() {
@@ -1135,7 +1610,7 @@ function openCalendar(button, field) {
   calMonth = field.value ? parseISO(field.value) : new Date();
   calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
   calView = "days";
-  button.parentNode.append(calendar);
+  (mobile.matches ? document.body : button.parentNode).append(calendar);
   button.closest(".panel").classList.add("above");
   button.setAttribute("aria-expanded", "true");
   paintCalendar();
@@ -1202,9 +1677,10 @@ function buildSegments() {
     for (const [value, label] of spec.items) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = label;
+      button.textContent = t(label);
+      button.dataset.en = label;
       button.dataset.value = value;
-      button.addEventListener("click", () => {
+    button.addEventListener("click", () => {
         state[key] = value;
         if (key === "q" && value === "1") { quoteText.value = ""; quoteAuthor.value = ""; }
         render();
@@ -1234,10 +1710,103 @@ function paintModes() {
     row.hidden = mode !== "span";
   });
   document.getElementById("mode-hint").textContent =
-    mode === "span" ? "" : "No dates in the link — it rolls over on its own.";
+    mode === "span" ? "" : t("No dates in the link — it rolls over on its own.");
 }
 
+
+// ── Painting the page in the chosen language ────────────────────────────────
+// The strings live in the markup in English and are swapped in place, with the
+// original kept on the node: translating from the source text every time would
+// mean translating a translation the second time round.
+const HTML_TEXT = {
+  "help-body": [
+    null,   // the page is written in English; this is the Russian of it
+    `<p>Wallcal рисует календарь картинкой. Ссылка всегда отдаёт
+        <b>сегодняшний</b> день, поэтому однажды поставленные обои не устаревают.</p>
+     <p><b>На айфоне, один раз:</b></p>
+     <ol>
+       <li>Команды → Автоматизация → Новая → <b>Время дня</b>. Выберите час,
+           ежедневно, <b>запускать сразу</b> и выключите «Уведомлять».</li>
+       <li>Добавьте действие <b>Получить содержимое URL</b> и вставьте то, что дала
+           кнопка <b>Копировать</b>.</li>
+       <li>Добавьте <b>Установить фото обоев</b>, наведите на <b>экран блокировки</b>
+           и выключите «Показать предпросмотр».</li>
+     </ol>
+     <p>Ждать назначенного часа не обязательно: нажмите <b>▶</b> на автоматизации,
+        и она отработает сразу.</p>
+`,
+  ],
+  "shortcut-hint": [
+    `Point a daily iOS Shortcut at the link below. The clock and the buttons are
+     the mock-up around the picture, not part of it.`,
+    `Наведите ежедневный ярлык iOS на ссылку ниже. Часы и кнопки — это макет
+     вокруг картинки, а не она сама.`,
+  ],
+  "marker-empty": [
+    `Your own days — a weekly night out, the days a month turns on, one
+     deadline, a whole holiday — take a tinted cell. Press <b>+ Marker</b>,
+     name it, pick the days and a colour.`,
+    `Свои дни — еженедельная вылазка, дни зарплаты, один дедлайн, целый
+     отпуск — получают залитую ячейку. Нажмите <b>+ Метка</b>, назовите её,
+     выберите дни и цвет.`,
+  ],
+};
+
+function original(node, attribute) {
+  // dataset keys are camelCase; "en-aria-label" is not a name it will accept.
+  const key = attribute
+    ? "en" + attribute.replace(/(^|-)([a-z])/g, (whole, dash, letter) => letter.toUpperCase())
+    : "en";
+  if (node.dataset[key] === undefined) {
+    node.dataset[key] = attribute ? node.getAttribute(attribute) : node.textContent.trim();
+  }
+  return node.dataset[key];
+}
+
+function paintLanguage() {
+  uiLang = state.lang === "ru" ? "ru" : "en";
+  document.documentElement.lang = uiLang;
+  langButton.textContent = uiLang === "ru" ? "RU" : "EN";
+
+  for (const node of document.querySelectorAll(
+    "#controls legend, #controls .row > label, .dock .label span, .copy-label, " +
+    "#controls .action, .bio, .marker-foot .action, .marker-pull span, " +
+    ".help-head strong, #help-close, #model-any, " +
+    "#modes button, #presets button, .colophon a")) {
+    // Only leaves: a date field is an .action too, and writing text into it
+    // would take its icon and its label with it.
+    if (node.children.length === 0) node.textContent = t(original(node));
+  }
+  for (const node of document.querySelectorAll("#controls .seg button, .rail button")) {
+    if (node.dataset.en) node.textContent = t(node.dataset.en);
+  }
+  for (const node of document.querySelectorAll("[placeholder]")) {
+    node.setAttribute("placeholder", t(original(node, "placeholder")));
+  }
+  for (const node of document.querySelectorAll("[aria-label], [title]")) {
+    for (const attribute of ["aria-label", "title"]) {
+      if (node.hasAttribute(attribute) && node.id !== "ui-theme") {
+        node.setAttribute(attribute, t(original(node, attribute)));
+      }
+    }
+  }
+  for (const [id, pair] of Object.entries(HTML_TEXT)) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    // A null English side means the markup in the document is the English.
+    pair[0] ??= node.innerHTML;
+    node.innerHTML = uiLang === "ru" ? pair[1] : pair[0];
+  }
+}
+
+const langButton = document.getElementById("ui-lang");
+langButton.addEventListener("click", () => {
+  state.lang = state.lang === "ru" ? "en" : "ru";
+  render();
+});
+
 function paintSelection() {
+  paintLanguage();
   paintModes();
   paintDates();
   paintScreen();
@@ -1253,10 +1822,6 @@ function paintSelection() {
   });
 }
 
-// The mock-up is a viewing aid, not part of the wallpaper: it belongs in the
-// preview on this page and never in the link you hand to a phone.
-const PREVIEW_ONLY = new Set(["pv"]);
-
 function query({ forPreview = false } = {}) {
   const parts = mode === "span" ? [`f=${fromInput.value}`, `t=${toInput.value}`] : [];
   const size = screenSize();
@@ -1264,7 +1829,6 @@ function query({ forPreview = false } = {}) {
     parts.push(`w=${size.w}`, `h=${size.h}`);
   }
   for (const [key, spec] of Object.entries({ ...OPTIONS, ...SWATCHES })) {
-    if (PREVIEW_ONLY.has(key)) continue;
     // A sun with nowhere to rise is a 400, and a link that answers 400 is worse
     // than a link with one knob missing. The hint under the panel says why.
     if (key === "sky" && skyFault()) continue;
@@ -1281,7 +1845,7 @@ function query({ forPreview = false } = {}) {
     if (quoteAuthor.value.trim()) parts.push(`qa=${encodeURIComponent(quoteAuthor.value.trim())}`);
   }
   if (forPreview) {
-    if (state.pv === "1") parts.push("pv=1");
+    parts.push("pv=1");
     parts.push(`_=${BOOT}`);
   }
   return parts.join("&");
@@ -1329,6 +1893,24 @@ function restore() {
   return Boolean(pick("f") && pick("t"));
 }
 
+// Keyed by row, not by size: several phones share a screen, and a select set
+// by value would jump to the first of them and contradict the person who just
+// picked one of the others.
+IPHONES.forEach(([name], index) => {
+  const option = document.createElement("option");
+  option.value = String(index);
+  option.textContent = name;
+  model.append(option);
+});
+model.addEventListener("change", () => {
+  const phone = IPHONES[Number(model.value)];
+  if (!phone) return;
+  screenW.value = phone[1];
+  screenH.value = phone[2];
+  render();
+});
+
+let live = false;             // set once the sheet and its measurements exist
 let timer = null;
 function render() {
   paintSelection();
@@ -1360,17 +1942,17 @@ for (const field of [screenW, screenH, latField, lonField]) {
 
 document.getElementById("locate").addEventListener("click", () => {
   if (!navigator.geolocation) {
-    skyHint.textContent = "This browser will not share a location; type a pair instead.";
+    skyHint.textContent = t("This browser will not share a location; type a pair instead.");
     return;
   }
-  skyHint.textContent = "Asking the browser…";
+  skyHint.textContent = t("Asking the browser…");
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
       latField.value = coords.latitude.toFixed(2);
       lonField.value = coords.longitude.toFixed(2);
       render();
     },
-    () => { skyHint.textContent = "The browser refused — type a latitude and longitude."; },
+    () => { skyHint.textContent = t("The browser refused — type a latitude and longitude."); },
     { maximumAge: 600000, timeout: 10000 },
   );
 });
@@ -1413,19 +1995,19 @@ function flash(button, label, good) {
 document.getElementById("copy").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (await copyText(urlBox.textContent)) {
-    flash(button, "Copied", true);
+    flash(button, t("Copied"), true);
   } else {
     selectUrl();
-    flash(button, "Press ⌘/Ctrl+C", false);
+    flash(button, t("Press ⌘/Ctrl+C"), false);
   }
 });
 
 document.getElementById("share").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (await copyText(location.href)) {
-    flash(button, "Copied", true);
+    flash(button, t("Copied"), true);
   } else {
-    flash(button, "Press ⌘/Ctrl+C", false);
+    flash(button, t("Press ⌘/Ctrl+C"), false);
   }
 });
 
@@ -1438,16 +2020,27 @@ function selectUrl() {
   selection.addRange(range);
 }
 urlBox.addEventListener("click", selectUrl);
-document.getElementById("open").addEventListener("click", () => {
-  window.open(urlBox.textContent, "_blank");
+const help = document.getElementById("help");
+const helpScrim = document.getElementById("help-scrim");
+function showHelp(on) {
+  help.hidden = !on;
+  helpScrim.hidden = !on;
+  if (on) document.getElementById("help-close").focus();
+}
+document.getElementById("help-btn").addEventListener("click", () => showHelp(true));
+document.getElementById("help-close").addEventListener("click", () => showHelp(false));
+helpScrim.addEventListener("click", () => showHelp(false));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !help.hidden) showHelp(false);
 });
 
 function showQuote() {
   if (quoteText.value.trim()) {
-    quoteHint.textContent = "Your own line, fixed in the link. Rotation is off.";
+    quoteHint.textContent = t("Your own line, fixed in the link. Rotation is off.");
   } else if (state.q === "1" && rotation.today) {
-    quoteHint.textContent =
-      `Today: “${rotation.today.line}” — ${rotation.today.author}. It changes every day.`;
+    quoteHint.textContent = uiLang === "ru"
+      ? `Сегодня: «${rotation.today.line}» — ${rotation.today.author}. ${t("It changes every day.")}`
+      : `Today: “${rotation.today.line}” — ${rotation.today.author}. It changes every day.`;
   } else {
     quoteHint.textContent = "";
   }
@@ -1591,7 +2184,8 @@ function hueHex(name) {
 
 function chips(attribute, entries) {
   return entries.map(([value, label]) =>
-    `<button type="button" data-${attribute}="${value}">${label}</button>`).join("");
+    `<button type="button" data-${attribute}="${value}"
+             data-en="${label}">${t(label)}</button>`).join("");
 }
 
 function markerRow(marker) {
@@ -1601,13 +2195,17 @@ function markerRow(marker) {
   row.innerHTML = `
     <div class="marker-head">
       <input type="text" class="marker-name" maxlength="${MARKER_LABEL_MAX}"
-             placeholder="Name it — Gym, Rent, Holiday" aria-label="Marker name">
+             placeholder="${t("Name it — Gym, Rent, Holiday")}"
+             data-en-placeholder="Name it — Gym, Rent, Holiday"
+             aria-label="${t("Marker name")}" data-en-aria-label="Marker name">
       <span class="seg">${chips("kind", MARKER_KINDS)}</span>
-      <button type="button" class="action small marker-drop" aria-label="Remove this marker">✕</button>
+      <button type="button" class="action small marker-drop"
+              aria-label="${t("Remove this marker")}"
+              data-en-aria-label="Remove this marker">✕</button>
     </div>
     <div class="marker-body">
       <span class="seg" data-rule="days">${chips("weekday",
-        WEEKDAYS.map((label, index) => [index, label]))}</span>
+        WEEKDAYS_EN.map((label, index) => [index, label]))}</span>
       <span class="seg" data-rule="month">${chips("monthday", months)}</span>
       <span class="datefield" data-rule="date">
         <button type="button" class="action small marker-date" data-slot="date"
@@ -1633,7 +2231,8 @@ function markerRow(marker) {
     </div>
     <label class="marker-pull" data-rule-pull>
       <input type="checkbox" class="marker-pull-box">
-      <span>Pull back off days nobody works</span>
+      <span data-en="Pull back off days nobody works">${
+        t("Pull back off days nobody works")}</span>
     </label>`;
 
   row.querySelectorAll("input[type=date]").forEach((field) => {
@@ -1734,22 +2333,36 @@ markerAdd.addEventListener("click", () => {
 // The page's own theme, separate from the wallpaper's: `auto` leaves it to the
 // system, the other two override it. Stored on its own key so clearing builder
 // settings does not blind you with a white page.
+//
+// One button rather than three: the three spent a row of the masthead standing
+// for a choice made once, and two of them were always the wrong answer. It
+// cycles, wears the mode it is in, and starts on auto.
+const UI_MODES = ["auto", "light", "dark"];
+const UI_NAMES = { auto: "follow the system", light: "light", dark: "dark" };
+const themeButton = document.getElementById("ui-theme");
+
 function applyUiTheme(choice) {
   if (choice === "auto") document.documentElement.removeAttribute("data-ui");
   else document.documentElement.setAttribute("data-ui", choice);
   try { localStorage.setItem(UI_KEY, choice); } catch {}
-  document.querySelectorAll("#ui-theme button").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.ui === choice));
+  themeButton.dataset.ui = choice;
+  themeButton.setAttribute("aria-label", `Theme: ${UI_NAMES[choice]}`);
+  themeButton.querySelectorAll(".ico").forEach((icon) => {
+    // The attribute, not the property: `hidden` is an HTMLElement property and
+    // these icons are SVG, so assigning it would set a field on the object and
+    // leave the markup — and the styling — exactly as it was.
+    icon.toggleAttribute("hidden", icon.dataset.ui !== choice);
   });
 }
 
-document.getElementById("ui-theme").addEventListener("click", (event) => {
-  const choice = event.target.dataset.ui;
-  if (choice) applyUiTheme(choice);
+themeButton.addEventListener("click", () => {
+  const next = (UI_MODES.indexOf(themeButton.dataset.ui) + 1) % UI_MODES.length;
+  applyUiTheme(UI_MODES[next]);
 });
 
 let uiChoice = "auto";
 try { uiChoice = localStorage.getItem(UI_KEY) || "auto"; } catch {}
+if (!UI_MODES.includes(uiChoice)) uiChoice = "auto";
 applyUiTheme(uiChoice);
 
 buildSegments();
@@ -1770,6 +2383,305 @@ if (window.ResizeObserver) {
     document.documentElement.style.setProperty("--dock-h", `${dock.offsetHeight}px`);
   }).observe(dock);
 }
+
+
+// ── The sheet ───────────────────────────────────────────────────────────────
+// A phone is one screen, not two columns, so the settings ride on a sheet you
+// drag up over a pinned mock-up — the gesture every map app on the thing
+// already taught. Two rests: the link alone at the bottom, the settings at
+// half. The document itself does not scroll here; the sheet does, which is
+// what keeps the preview from sliding away while you work.
+const mobile = window.matchMedia("(max-width:700px)");
+const sheet = document.getElementById("sheet");
+const sheetBody = document.getElementById("sheet-body");
+const grip = document.getElementById("grip");
+const masthead = document.querySelector("header");
+const RESTS = ["peek", "half"];
+
+function peekHeight() {
+  return parseFloat(getComputedStyle(sheet).getPropertyValue("--peek")) || 120;
+}
+
+// What the sheet is tall in each rest. Read off the window rather than kept in
+// a constant: a phone's browser chrome grows and shrinks as you scroll, and dvh
+// moves with it.
+function restHeights() {
+  return { peek: peekHeight(), half: window.innerHeight * 0.46 };
+}
+
+// The room left for the mock-up when the sheet is that tall.
+function stageFor(sheetHeight) {
+  const top = masthead.getBoundingClientRect().bottom + 8;
+  return Math.max(70, window.innerHeight - sheetHeight - top - 10);
+}
+
+// Where the sheet is going, not where it is. The phone is handed its
+// destination in the same frame the sheet is handed its own, and the two then
+// travel under the same curve — reading the sheet's live box instead meant the
+// phone was recomputed once a frame and arrived in steps.
+function stageHeight() {
+  if (sheet.classList.contains("dragging")) return stageFor(sheet.offsetHeight);
+  return stageFor(restHeights()[sheet.dataset.state] ?? sheet.offsetHeight);
+}
+
+// The phone is laid out once, at the size it takes in the bottom rest — its
+// largest — and every size after that is a transform. One animated property
+// instead of two means a rest change and a zoom are the same motion.
+function baseScale() {
+  // The shell takes the shape of whatever screen is set, so its height is 393
+  // by that ratio — not the 852 of the phone this page happens to open on.
+  const tall = 393 * (parseFloat(getComputedStyle(phone).getPropertyValue("--ratio")) || 2.168);
+  return Math.max(0.14, Math.min(stageFor(peekHeight()) / tall, (window.innerWidth - 28) / 393));
+}
+
+function settle(state) {
+  sheet.dataset.state = state;
+  sheet.style.height = "";
+  fitPhone();
+}
+
+function fitPhone() {
+  if (!mobile.matches) {
+    phone.style.removeProperty("--s");
+    phone.style.transform = "";
+    document.documentElement.style.removeProperty("--sheet-h");
+    fog(false);
+    return;
+  }
+  phone.style.setProperty("--s", baseScale().toFixed(3));
+  // The stage runs to the bottom of the screen and is held clear of the sheet
+  // by padding, so the phone can pass under the interface rather than stop at
+  // an edge just above it.
+  const rests = restHeights();
+  document.documentElement.style.setProperty(
+    "--sheet-h", `${Math.round(rests[sheet.dataset.state] ?? sheet.offsetHeight)}px`);
+  frame();
+}
+
+function placeDock() {
+  // Inside the sheet the link travels with it; outside, it is the floating slab
+  // the wide layout wants. Moving the node keeps one set of handlers either way.
+  if (mobile.matches) sheet.insertBefore(dock, rail);
+  else document.body.append(dock);
+  paintRail();
+  document.documentElement.style.setProperty("--head-h", `${masthead.offsetHeight}px`);
+  fitPhone();
+}
+
+// What each panel is about, as a slice of the wallpaper: the middle of the
+// slice and how tall it is, in fractions of the screen. Keyed by the English
+// legend, so translating the page does not move the camera.
+const FRAMING = {
+  "Span":       { tall: 0.50 },   // the field of days
+  "Screen":     { tall: 1.00 },   // the phone entire
+  "Grid":       { tall: 0.50 },
+  "Labels":     { at: 0.42, tall: 0.34 },   // weeks, months and the day row
+  "Highlights": { tall: 0.50 },
+  "Theme":      { tall: 1.00 },   // colour is a property of the whole
+  "Footer":     { at: 0.88, tall: 0.34 },   // the line and the rule under it
+  "Markers":    { tall: 0.50 },
+};
+
+function frame() {
+  if (!mobile.matches) return;
+  const stage = stageHeight();
+  const base = baseScale();
+  const tallBox = phone.offsetHeight, wideBox = phone.offsetWidth;
+  if (!tallBox) return;
+  // The phone as it would sit with nothing magnified: never taller than the
+  // stage, never wider than the screen. Measured off the box, so an unusual
+  // screen is fitted by its own shape.
+  const fit = Math.min(stage / tallBox, (window.innerWidth - 28) / wideBox);
+  const panel = panels[chosen];
+  const zoomed = sheet.dataset.state === "half";
+  // original() holds the English legend whatever the page is showing.
+  const view = zoomed && panel ? FRAMING[original(panel.querySelector("legend"))] : null;
+  if (!view || view.tall >= 1) {
+    phone.style.transform = `scale(${fit.toFixed(3)})`;
+    fog(false);
+    return;
+  }
+  const pad = 14;                       // air around the magnified device
+  // The screen is inset 12px of layout in the shell, so a fraction of the
+  // picture is not the same fraction of the device.
+  const bezel = 12 * (parseFloat(getComputedStyle(phone).getPropertyValue("--s")) || 1);
+  const SCREEN_TOP = bezel / tallBox, SCREEN_TALL = (tallBox - bezel * 2) / tallBox;
+  const wanted = (stage - pad * 2) / (view.tall * SCREEN_TALL * tallBox);
+  // Never wider than the screen: both edges of the device stay in view.
+  const scale = Math.min(Math.max(fit, wanted), (window.innerWidth - pad * 2) / wideBox);
+  const seen = Math.min(1, stage / (tallBox * scale));
+  const middle = SCREEN_TOP + (view.at ?? 0.60) * SCREEN_TALL;
+  const down = Math.min(1 - seen / 2, Math.max(seen / 2, middle));
+  phone.style.transform =
+    `scale(${scale.toFixed(3)}) translateY(${(50 - down * 100).toFixed(2)}%)`;
+  fog(tallBox * scale > stage + 1);
+}
+
+// Written only on a change: frame() runs once a frame while the sheet travels,
+// and a repeated write there is a repeated style invalidation for nothing.
+function fog(on) {
+  const want = on ? "on" : "off";
+  if (document.documentElement.dataset.zoom !== want) {
+    document.documentElement.dataset.zoom = want;
+  }
+}
+
+
+// The rail is built from the panels themselves, so a new panel appears in it
+// without anything here knowing about it.
+const rail = document.getElementById("rail");
+const controls = document.getElementById("controls");
+const panels = [...controls.querySelectorAll(".panel")];
+// Which panel you were in is worth keeping — a phone gets picked up twenty
+// times a day, and landing back on Span each time to get to Markers is a tax.
+// Where the sheet was resting is not: that is the gesture of a moment.
+const PANEL_KEY = "wallcal.panel";
+let chosen = 0;
+try {
+  const saved = panels.findIndex((panel) =>
+    panel.querySelector("legend").textContent.trim() === localStorage.getItem(PANEL_KEY));
+  if (saved >= 0) chosen = saved;
+} catch {}
+
+function paintRail() {
+  const one = mobile.matches;
+  frame();
+  panels.forEach((panel, index) => { panel.hidden = one && index !== chosen; });
+  rail.querySelectorAll("button").forEach((button, index) => {
+    button.setAttribute("aria-pressed", String(index === chosen));
+  });
+}
+
+function buildRail() {
+  panels.forEach((panel, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    // The English name is kept on the chip: writing the translation and then
+    // reading it back as the original would freeze the rail in one language.
+    button.dataset.en = original(panel.querySelector("legend"));
+    button.textContent = t(button.dataset.en);
+    button.addEventListener("click", () => {
+      if (index === chosen) return;
+      const leaving = panels[chosen];
+      chosen = index;
+      // The English name, so the choice survives a change of language.
+      try { localStorage.setItem(PANEL_KEY, original(panel.querySelector("legend"))); } catch {}
+      // The phone starts moving on the tap; the settings change under it once
+      // the old panel is out of the way.
+      frame();
+      swapPanel(leaving, () => { sheetBody.scrollTop = 0; });
+      button.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+      // Picking something to change is the moment you want room to change it.
+      if (sheet.dataset.state === "peek") settle("half");
+    });
+    rail.append(button);
+    // The remembered chip may be off the end of the rail on a narrow screen.
+    if (index === chosen) button.scrollIntoView({ block: "nearest", inline: "center" });
+  });
+}
+
+// Out, then in. Swapping in one frame read as a glitch — the old panel did not
+// leave, it simply stopped being there.
+function swapPanel(leaving, then) {
+  const arrive = () => {
+    paintRail();
+    then();
+    const panel = panels[chosen];
+    if (!mobile.matches || still) return;
+    panel.classList.remove("entering");
+    void panel.offsetWidth;            // restart the animation, not resume it
+    panel.classList.add("entering");
+  };
+  if (!mobile.matches || still || !leaving || leaving === panels[chosen]) {
+    arrive();
+    return;
+  }
+  // Tapped again before it finished arriving: the entrance has to give way, or
+  // its rule — the later of the two — keeps playing while the panel leaves.
+  leaving.classList.remove("entering");
+  leaving.classList.add("leaving");
+  setTimeout(() => { leaving.classList.remove("leaving"); arrive(); }, 150);
+}
+
+let grabbedAt = null;
+let grabbedHeight = 0;
+let travelled = 0;
+let pointerHandled = false;
+
+grip.addEventListener("pointerdown", (event) => {
+  if (!mobile.matches || grabbedAt !== null) return;   // a second finger is not a new drag
+  // A drag downwards runs the cursor over the text below the grip, and the
+  // browser starts selecting it — which cancels the pointer mid-gesture, so
+  // the sheet would open and never close again.
+  event.preventDefault();
+  // Cleared here rather than in the click handler: a pointer the system takes
+  // away never reaches a click, and the flag would sit set over the keyboard.
+  pointerHandled = false;
+  grip.setPointerCapture(event.pointerId);
+  grabbedAt = event.clientY;
+  grabbedHeight = sheet.offsetHeight;
+  travelled = 0;
+  sheet.classList.add("dragging");
+  document.documentElement.classList.add("dragging");
+});
+
+grip.addEventListener("pointermove", (event) => {
+  if (grabbedAt === null) return;
+  const delta = event.clientY - grabbedAt;
+  travelled = Math.max(travelled, Math.abs(delta));
+  const rests = restHeights();
+  // Dragging up (a negative delta) makes the sheet taller.
+  const height = Math.min(rests.half, Math.max(rests.peek, grabbedHeight - delta));
+  sheet.style.height = `${Math.round(height)}px`;
+});
+
+function release() {
+  if (grabbedAt === null) return;
+  grabbedAt = null;
+  pointerHandled = true;
+  sheet.classList.remove("dragging");
+  document.documentElement.classList.remove("dragging");
+  // A tap is a drag that went nowhere: it steps to the next rest, so the sheet
+  // is usable without a gesture at all.
+  if (travelled < 6) {
+    const next = (RESTS.indexOf(sheet.dataset.state) + 1) % RESTS.length;
+    settle(RESTS[next]);
+    return;
+  }
+  const height = sheet.offsetHeight;
+  const rests = restHeights();
+  const nearest = RESTS.reduce((best, name) =>
+    Math.abs(rests[name] - height) < Math.abs(rests[best] - height) ? name : best);
+  settle(nearest);
+}
+
+grip.addEventListener("pointerup", release);
+grip.addEventListener("pointercancel", release);
+
+// A pointer gesture already ended in release(); this is here for Enter and
+// Space, which fire a click and no pointer events at all.
+grip.addEventListener("click", () => {
+  if (!mobile.matches) return;
+  if (pointerHandled) { pointerHandled = false; return; }
+  const next = (RESTS.indexOf(sheet.dataset.state) + 1) % RESTS.length;
+  settle(RESTS[next]);
+});
+
+// Tapping the preview gets it out from under the sheet.
+document.querySelector(".stage").addEventListener("click", () => {
+  if (mobile.matches && sheet.dataset.state !== "peek") settle("peek");
+});
+
+mobile.addEventListener("change", placeDock);
+window.addEventListener("resize", () => {
+  document.documentElement.style.setProperty("--head-h", `${masthead.offsetHeight}px`);
+  fitPhone();
+});
+buildRail();
+placeDock();
+live = true;                  // from here a change of shape can be measured
+// Long enough for the last panel's delay plus its half second.
+setTimeout(() => document.documentElement.classList.add("settled"), 1100);
 
 // The glow trails the pointer and the dotted ground drifts against it by ten
 // pixels — enough that the grid reads as a layer of its own rather than as a

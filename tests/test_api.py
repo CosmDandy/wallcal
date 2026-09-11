@@ -34,10 +34,12 @@ def test_index_serves_the_builder(client: TestClient):
     assert "text/html" in response.headers["content-type"]
     for mode in ("span", "year", "quarter", "month"):
         assert f'data-mode="{mode}"' in body
-    # Every query parameter the API takes should be reachable from the page.
-    knobs = ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "pc", "mk", "th", "ft", "br", "pv")
+    # Every query parameter the API takes should be reachable from the page —
+    # bar the mock-up, which is the preview's own furniture and never a setting.
+    knobs = ("s", "g", "sp", "mb", "fd", "ax", "lb", "wk", "we", "pc", "mk", "th", "ft", "br")
     for knob in (*knobs, "sky", "dl"):
         assert f'data-key="{knob}"' in body
+    assert 'data-key="pv"' not in body
 
 
 def test_the_builder_takes_a_screen_in_pixels(client: TestClient):

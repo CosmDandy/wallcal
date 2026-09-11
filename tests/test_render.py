@@ -35,6 +35,7 @@ from wallcal.render import (
     to_png,
 )
 from wallcal.sky import SkyMode
+from wallcal.strings import long_date
 
 from .conftest import SPAN_END, SPAN_START, TODAY
 
@@ -913,3 +914,12 @@ def test_a_day_running_past_midnight_keeps_its_length():
 
     assert wrapped.startswith("01:31 – 00:02")
     assert wrapped.endswith("· 22:31"), wrapped
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [("en", "Friday, 11 September"), ("ru", "Пятница, 11 сентября")],
+)
+def test_the_mock_up_writes_its_date_in_the_chosen_language(language: str, expected: str):
+    """strftime would have taken this from the container's locale, not the reader's."""
+    assert long_date(language, date(2026, 9, 11)) == expected

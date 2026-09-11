@@ -129,8 +129,13 @@ jobs:
           file shot.png | grep -q 'PNG image data' || { echo "::error::not a PNG"; exit 1; }
           [ "$(stat -c%s shot.png)" -gt 5000 ] || { echo "::error::PNG suspiciously small"; exit 1; }
 
-          # The builder page must ship too: it is half the product.
-          curl -fsS http://127.0.0.1:8000/ | grep -q 'data-key=' \
+          # The builder page must ship too: it is half the product. Saved first
+          # rather than piped: `grep -q` closes the pipe on its first match, and
+          # with pipefail on, curl then fails with EPIPE and the step reports a
+          # missing page. The page passed 64 KB — the pipe buffer — and started
+          # losing that race.
+          curl -fsS -o page.html http://127.0.0.1:8000/
+          grep -q 'data-key=' page.html \
             || { echo "::error::builder page missing from the image"; exit 1; }
 
           # And it must not be running as root.
