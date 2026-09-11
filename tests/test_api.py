@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from wallcal import __version__
 from wallcal.app import app, wallpaper
 from wallcal.devices import DEFAULT_DEVICE, DEVICES, MAX_SIDE, MIN_SIDE
 
@@ -603,3 +604,38 @@ def test_the_day_length_can_be_dropped(client: TestClient):
         client.get(f"/w/span.png?{SUN}&dl=0").headers["etag"]
         != client.get(f"/w/span.png?{SUN}").headers["etag"]
     )
+
+
+def test_the_builder_page_is_revalidated_rather_than_refetched(client: TestClient):
+    """It is 40 KB gzipped and it changes only on deploy.
+
+    `no-cache` keeps the copy in the browser and asks whether it is still good:
+    a revisit then costs one round trip and no bytes, while a new version still
+    lands the moment it is deployed.
+    """
+    first = client.get("/")
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+
+    again = client.get("/", headers={"If-None-Match": etag})
+
+    assert again.status_code == 304
+    assert again.content == b""
+
+
+def test_the_page_knows_which_version_drew_it(client: TestClient):
+    """The preview's address carries it, so a browser may keep the picture
+    between visits and still get a fresh one after an upgrade."""
+    body = client.get("/").text
+
+    assert "__WALLCAL_VERSION__" not in body
+    assert f'data-version="{__version__}"' in body
+
+
+def test_the_rotation_says_how_long_it_is_good_for(client: TestClient):
+    """Today's pick turns over at midnight and the list is a file: asking for it
+    again on every page load was a round trip in front of the preview."""
+    control = client.get("/api/quotes").headers["cache-control"]
+
+    assert control.startswith("public, max-age=")
+    assert int(control.rsplit("=", 1)[1]) > 0

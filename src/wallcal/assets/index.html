@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-version="__WALLCAL_VERSION__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1321,9 +1321,26 @@ const UI_KEY = "wallcal.ui-theme";
 let mode = "span";
 // Wallpapers are cached until midnight, which is right for a phone and wrong
 // here: after a redeploy the browser kept serving yesterday's drawing for a URL
-// whose parameters had not changed. One nonce per page load busts it for the
-// preview only — the link you copy stays clean and cacheable.
-const BOOT = Date.now();
+// whose parameters had not changed. The version busts that — and, unlike the
+// per-load nonce it replaces, it lets a revisit show the preview it already has
+// instead of waiting on a fresh render. The link you copy carries neither.
+const BOOT = document.documentElement.dataset.version || Date.now();
+
+// The mock-up is a few hundred points wide; the wallpaper is four times that in
+// pixels. The preview is asked for at the size it is actually shown, stepped so
+// that a drag, a rotation or a zoom does not order a new drawing for twenty
+// pixels of width.
+const PREVIEW_STEP = 160;
+function previewSize() {
+  const real = screenSize();
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  // A tenth over what is on screen now: the sheet moves, the phone grows with
+  // it, and a preview ordered a step too small would be the soft one.
+  const shown = (phone.getBoundingClientRect().width || 300) * dpr * 1.1;
+  const width = Math.max(320, Math.ceil(shown / PREVIEW_STEP) * PREVIEW_STEP);
+  if (width >= real.w) return real;
+  return { w: width, h: Math.max(320, Math.round((width * real.h) / real.w)) };
+}
 const fromInput = document.getElementById("from");
 const quoteText = document.getElementById("qt");
 const quoteAuthor = document.getElementById("qa");
@@ -1331,6 +1348,16 @@ const quoteHint = document.getElementById("quote-preview");
 const nudge = document.getElementById("sh");
 const nudgeValue = document.getElementById("sh-value");
 let rotation = { today: null, quotes: [] };
+// Asked for the first time something needs it — the quote hint or Shuffle —
+// rather than on every page load, where it sat in front of the preview.
+let rotationCall = null;
+function wantQuotes() {
+  rotationCall ??= fetch("/api/quotes")
+    .then((response) => response.json())
+    .then((data) => { rotation = data; showQuote(); })
+    .catch(() => { rotationCall = null; });
+  return rotationCall;
+}
 const toInput = document.getElementById("to");
 const urlBox = document.getElementById("url");
 const shot = document.getElementById("shot");
@@ -1824,7 +1851,7 @@ function paintSelection() {
 
 function query({ forPreview = false } = {}) {
   const parts = mode === "span" ? [`f=${fromInput.value}`, `t=${toInput.value}`] : [];
-  const size = screenSize();
+  const size = forPreview ? previewSize() : screenSize();
   if (!screenFault(size) && (size.w !== SCREEN.w || size.h !== SCREEN.h)) {
     parts.push(`w=${size.w}`, `h=${size.h}`);
   }
@@ -1917,12 +1944,12 @@ function render() {
   urlBox.textContent = `${location.origin}/w/${mode}.png?${query()}`;
   showQuote();
   save();
-  const preview = `${location.origin}/w/${mode}.png?${query({ forPreview: true })}`;
   clearTimeout(timer);
   if (screenFault(screenSize())) return;   // half-typed numbers are not a screen
   // The wallpaper itself does not animate: a knob you turn should land at once,
   // and a cross-fade between two drawings reads as the picture being unsure.
   timer = setTimeout(() => {
+    const preview = `${location.origin}/w/${mode}.png?${query({ forPreview: true })}`;
     if (shot.src !== preview) shot.src = preview;
   }, 120);
 }
@@ -2037,6 +2064,9 @@ document.addEventListener("keydown", (event) => {
 function showQuote() {
   if (quoteText.value.trim()) {
     quoteHint.textContent = t("Your own line, fixed in the link. Rotation is off.");
+  } else if (state.q === "1" && !rotation.today) {
+    wantQuotes();
+    quoteHint.textContent = "";
   } else if (state.q === "1" && rotation.today) {
     quoteHint.textContent = uiLang === "ru"
       ? `Сегодня: «${rotation.today.line}» — ${rotation.today.author}. ${t("It changes every day.")}`
@@ -2061,8 +2091,11 @@ function onOwnLine() {
 quoteText.addEventListener("input", onOwnLine);
 quoteAuthor.addEventListener("input", onOwnLine);
 
-document.getElementById("shuffle").addEventListener("click", () => {
-  if (!rotation.quotes.length) return;
+document.getElementById("shuffle").addEventListener("click", (event) => {
+  // The rotation is fetched lazily, so the first press may arrive before it:
+  // ask for it, then press the button again on its behalf.
+  const button = event.currentTarget;
+  if (!rotation.quotes.length) { wantQuotes().then(() => button.click()); return; }
   const pick = rotation.quotes[Math.floor(Math.random() * rotation.quotes.length)];
   quoteText.value = pick.line;
   quoteAuthor.value = pick.author;
@@ -2369,10 +2402,7 @@ buildSegments();
 if (!restore()) applyPreset("year");
 render();
 
-fetch("/api/quotes")
-  .then((response) => response.json())
-  .then((data) => { rotation = data; showQuote(); })
-  .catch(() => {});
+
 
 // The dock floats over the page, so the page has to know how tall it is: a link
 // with a quote in it wraps onto a third line, and a fixed padding at the bottom
