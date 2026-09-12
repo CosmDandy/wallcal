@@ -765,6 +765,10 @@
     }
     .sheet[data-state="peek"] { --h:var(--peek); }
     .sheet[data-state="half"] { --h:46dvh; }
+    /* Room for a long panel without making the mock-up smaller: the phone keeps
+       the size it has at half and the stage cuts the top and the bottom off it,
+       which is where the clock and the empty end of the field are. */
+    .sheet[data-state="tall"] { --h:64dvh; }
     /* Rounded corners over a fade leave two lit notches where the fade ends and
        the sheet has not started yet. Under the fade the sheet is square. */
     :root[data-zoom="on"] .sheet { border-radius:0; }
@@ -2426,7 +2430,7 @@ const sheet = document.getElementById("sheet");
 const sheetBody = document.getElementById("sheet-body");
 const grip = document.getElementById("grip");
 const masthead = document.querySelector("header");
-const RESTS = ["peek", "half"];
+const RESTS = ["peek", "half", "tall"];
 
 function peekHeight() {
   return parseFloat(getComputedStyle(sheet).getPropertyValue("--peek")) || 120;
@@ -2436,12 +2440,16 @@ function peekHeight() {
 // a constant: a phone's browser chrome grows and shrinks as you scroll, and dvh
 // moves with it.
 function restHeights() {
-  return { peek: peekHeight(), half: window.innerHeight * 0.46 };
+  const view = window.innerHeight;
+  return { peek: peekHeight(), half: view * 0.46, tall: view * 0.64 };
 }
 
 // The room left for the mock-up when the sheet is that tall.
 function stageFor(sheetHeight) {
-  const top = masthead.getBoundingClientRect().bottom + 8;
+  // offsetHeight, not the rect: the masthead arrives on a transform, and a
+  // measurement taken mid-animation left the phone two per cent small for the
+  // rest of the visit.
+  const top = masthead.offsetHeight + 8;
   return Math.max(70, window.innerHeight - sheetHeight - top - 10);
 }
 
@@ -2518,17 +2526,28 @@ function frame() {
   const base = baseScale();
   const tallBox = phone.offsetHeight, wideBox = phone.offsetWidth;
   if (!tallBox) return;
+  // The phone is sized for the half rest even when the sheet is above it: the
+  // top rest buys room for the settings by cutting the picture, not by shrinking
+  // it. Below half — at the bottom rest — there is more room and it is used.
+  // Taken from the rest table rather than from the live box, so the two rests
+  // agree to the pixel and the picture does not resize between them.
+  const rests = restHeights();
+  const room = stageFor(Math.min(rests[sheet.dataset.state] ?? sheet.offsetHeight, rests.half));
   // The phone as it would sit with nothing magnified: never taller than the
   // stage, never wider than the screen. Measured off the box, so an unusual
   // screen is fitted by its own shape.
-  const fit = Math.min(stage / tallBox, (window.innerWidth - 28) / wideBox);
+  const fit = Math.min(room / tallBox, (window.innerWidth - 28) / wideBox);
   const panel = panels[chosen];
-  const zoomed = sheet.dataset.state === "half";
+  // Both rests that show the settings frame the picture; only the bottom one,
+  // where the sheet is out of the way, shows the phone whole.
+  const zoomed = sheet.dataset.state !== "peek";
   // original() holds the English legend whatever the page is showing.
   const view = zoomed && panel ? FRAMING[original(panel.querySelector("legend"))] : null;
   if (!view || view.tall >= 1) {
     phone.style.transform = `scale(${fit.toFixed(3)})`;
-    fog(false);
+    // Even unmagnified the device can be taller than the window it sits in:
+    // at the top rest the room for the settings is bought by cutting it.
+    fog(tallBox * fit > stage + 1);
     return;
   }
   const pad = 14;                       // air around the magnified device
@@ -2536,7 +2555,7 @@ function frame() {
   // picture is not the same fraction of the device.
   const bezel = 12 * (parseFloat(getComputedStyle(phone).getPropertyValue("--s")) || 1);
   const SCREEN_TOP = bezel / tallBox, SCREEN_TALL = (tallBox - bezel * 2) / tallBox;
-  const wanted = (stage - pad * 2) / (view.tall * SCREEN_TALL * tallBox);
+  const wanted = (room - pad * 2) / (view.tall * SCREEN_TALL * tallBox);
   // Never wider than the screen: both edges of the device stay in view.
   const scale = Math.min(Math.max(fit, wanted), (window.innerWidth - pad * 2) / wideBox);
   const seen = Math.min(1, stage / (tallBox * scale));
@@ -2661,7 +2680,7 @@ grip.addEventListener("pointermove", (event) => {
   travelled = Math.max(travelled, Math.abs(delta));
   const rests = restHeights();
   // Dragging up (a negative delta) makes the sheet taller.
-  const height = Math.min(rests.half, Math.max(rests.peek, grabbedHeight - delta));
+  const height = Math.min(rests.tall, Math.max(rests.peek, grabbedHeight - delta));
   sheet.style.height = `${Math.round(height)}px`;
 });
 
@@ -2697,9 +2716,18 @@ grip.addEventListener("click", () => {
   settle(RESTS[next]);
 });
 
-// Tapping the preview gets it out from under the sheet.
+// Tapping the mock-up gets it out from under the sheet, and tapping it again
+// puts the settings back where they were — the gesture has to undo itself, or
+// the only way back is the grip.
+let lifted = "half";
 document.querySelector(".stage").addEventListener("click", () => {
-  if (mobile.matches && sheet.dataset.state !== "peek") settle("peek");
+  if (!mobile.matches) return;
+  if (sheet.dataset.state === "peek") {
+    settle(lifted);
+    return;
+  }
+  lifted = sheet.dataset.state;
+  settle("peek");
 });
 
 mobile.addEventListener("change", placeDock);
