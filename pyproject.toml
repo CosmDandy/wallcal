@@ -1,6 +1,6 @@
 [project]
 name = "wallcal"
-version = "1.0.1"
+version = "1.1.0"
 description = "Self-hosted calendar wallpapers rendered on demand from a URL"
 readme = "README.md"
 requires-python = ">=3.12"
