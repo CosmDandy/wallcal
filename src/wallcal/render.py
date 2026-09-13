@@ -215,6 +215,9 @@ class Style:
     marks: bool = True  # a tinted cell on the last day of each month
     month_mark: RGB = (0xCB, 0x4B, 0x16)  # solarized orange
     markers: tuple[Marker, ...] = ()  # the reader's own rules, drawn over the marks
+    title: str = ""  # a name for the span, set above the grid
+    title_size: str = "m"  # s, m or l
+    title_color: RGB | None = None  # None takes the tone the footer is set in
     quote: bool = False  # rotate a line of the day under the grid
     quote_text: str = ""  # replaces the rotation when set
     quote_author: str = ""
@@ -299,6 +302,8 @@ def render_span(
         footer=style.footer is not FooterMode.NONE,
         clock=style.clock,
         shift=style.shift,
+        title=bool(style.title),
+        title_size=style.title_size,
     )
     image = Image.new("RGB", (width, height), style.background)
 
@@ -328,6 +333,8 @@ def render_span(
             tile = faded[step]
         image.paste(tile, lay.dot_origin(cell.row, cell.col), mask)
 
+    if style.title:
+        _draw_title(image, lay, style)
     if style.axes:
         _draw_axes(image, lay, grid, style)
     if style.shows_quote:
@@ -648,6 +655,27 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, width: float) -> list[str]:
     if current:
         lines.append(current)
     return lines
+
+
+def _draw_title(image: Image.Image, lay: layout_mod.Layout, style: Style) -> None:
+    """The name of the span, centred over the field it names.
+
+    Set to the grid's own width and shrunk to fit rather than wrapped: a title
+    is one line, and two lines here would push the dots down the screen.
+    """
+    draw = ImageDraw.Draw(image)
+    size = lay.title_font
+    font = load_font(FONT_REGULAR, size)
+    while size > 10 and draw.textlength(style.title, font=font) > lay.grid_width:
+        size -= 1
+        font = load_font(FONT_REGULAR, size)
+    draw.text(
+        (lay.width / 2, lay.title_center_y),
+        style.title,
+        font=font,
+        fill=style.title_color or style.ramp.footer,
+        anchor="mm",
+    )
 
 
 def _draw_quote(

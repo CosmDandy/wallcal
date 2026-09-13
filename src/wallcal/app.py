@@ -26,7 +26,15 @@ from . import __version__, logs, quotes
 from .devices import DeviceError
 from .devices import resolve as resolve_size
 from .grid import DEFAULT_WEEKS_PER_ROW, GridError, WeekNumbering
-from .layout import ClockError, LabelError, LayoutError, parse_clock, parse_label_side
+from .layout import (
+    ClockError,
+    LabelError,
+    LayoutError,
+    TitleSizeError,
+    parse_clock,
+    parse_label_side,
+    parse_title_size,
+)
 from .markers import MarkerError, TooManyMarkers, parse_markers
 from .modes import ModeError, ModeNotImplemented, Params, build
 from .palette import ColorError, InkError, ThemeError, parse_color, parse_ink, parse_theme
@@ -196,7 +204,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     device: Annotated[str | None, Query(alias="d", description="screen preset")] = None,
     width: Annotated[int | None, Query(alias="w", description="explicit width")] = None,
     height: Annotated[int | None, Query(alias="h", description="explicit height")] = None,
-    shape: Annotated[str, Query(alias="s", description="c=circle, r=rounded square")] = "c",
+    shape: Annotated[str, Query(alias="s", description="c=circle, r=rounded square")] = "r",
     theme: Annotated[str, Query(alias="th", description="light or dark")] = "light",
     background: Annotated[
         str | None, Query(alias="bg", description="background color, overrides the theme")
@@ -209,7 +217,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     header: Annotated[
         str, Query(alias="hdr", description="top axis: days, count or none")
     ] = "days",
-    footer: Annotated[str, Query(alias="ft", description="pct, left, week or none")] = "pct",
+    footer: Annotated[str, Query(alias="ft", description="pct, left, week or none")] = "week",
     bar: Annotated[
         str, Query(alias="br", description="progress rule: span, year, quarter, month, none")
     ] = "1",
@@ -220,11 +228,14 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     split: Annotated[bool, Query(alias="sp", description="gap between weeks in a row")] = True,
     labels: Annotated[
         str, Query(alias="lb", description="label placement: left, right or split")
-    ] = "left",
+    ] = "split",
     clock: Annotated[
         str, Query(alias="ck", description="room for the lock screen clock: std or big")
     ] = "big",
     shift: Annotated[
+        # The grid hangs from the clock, so the nudge mostly pushes it down — but
+        # negative still lifts it into the reserve, for a clock shorter than the
+        # preset assumes.
         int, Query(alias="sh", ge=-15, le=15, description="nudge the grid, percent of height")
     ] = 0,
     ink: Annotated[str, Query(description="strong end of the ramp: bright or cream")] = "bright",
@@ -234,15 +245,24 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     ] = 0,
     weekends: Annotated[bool, Query(alias="we", description="band behind days off")] = True,
     production: Annotated[str, Query(alias="pc", description="production calendar: 0 or ru")] = "0",
-    marks: Annotated[bool, Query(alias="mk", description="tint the last day of a month")] = True,
+    marks: Annotated[bool, Query(alias="mk", description="tint the last day of a month")] = False,
     month_mark: Annotated[str, Query(alias="mc", description="month-end tint")] = "orange",
     markers: Annotated[
         list[str] | None,
         Query(alias="m", description="tint a rule's days: <rule>@<colour>[@<label>]"),
     ] = None,
+    title: Annotated[
+        str, Query(alias="ti", max_length=60, description="a name for the span, above the grid")
+    ] = "",
+    title_size: Annotated[
+        str, Query(alias="ts", description="how big that name is set: s, m or l")
+    ] = "m",
+    title_color: Annotated[
+        str, Query(alias="tc", description="colour of that name, or auto for the footer's tone")
+    ] = "auto",
     quote: Annotated[
         bool, Query(alias="q", description="a line for the day under the grid")
-    ] = False,
+    ] = True,
     quote_text: Annotated[
         str, Query(alias="qt", max_length=240, description="your own line, instead of the rotation")
     ] = "",
@@ -308,6 +328,9 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             month_mark=parse_color(month_mark),
             markers=rules,
             quote=quote,
+            title=" ".join(title.split()),
+            title_size=parse_title_size(title_size),
+            title_color=None if title_color == "auto" else parse_color(title_color),
             quote_text=quote_text,
             quote_author=quote_author,
             sky=sky_mode,
@@ -325,6 +348,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         LabelError,
         ThemeError,
         ClockError,
+        TitleSizeError,
         InkError,
         LanguageError,
         ProductionError,
@@ -365,7 +389,9 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     etag = f'"{fingerprint}"'
     headers = {
         # The image changes when "today" moves, so it may be cached exactly
-        # until midnight in the requested zone and not a second longer.
+        # until midnight in the requested zone and not a second longer. The
+        # mock-up does not shorten that: the one thing on it that would have —
+        # the clock — is written by the page, over the picture.
         "Cache-Control": f"public, max-age={_seconds_to_midnight(now)}",
         "ETag": etag,
     }
@@ -378,7 +404,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         with render_slot():
             image = render_span(grid, size[0], size[1], style, zone)
             if preview:
-                overlay(image, style, now.date())
+                overlay(image, style)
             payload = to_png(image)
             # The image is the largest thing in the request; the bytes are all
             # that is left to send.

@@ -15,6 +15,15 @@ COLUMNS = GROUPS * DAYS_PER_WEEK
 ROW_COUNTS = [1, 3, 7, 27]
 
 
+def block_top(lay: L.Layout) -> int:
+    """Where the drawing starts: the weekday header, not the first row of dots.
+
+    Read back from the header's own centre line, which is all the layout keeps —
+    so it is good to a pixel, not to the pixel.
+    """
+    return lay.grid_y - 2 * (lay.grid_y - lay.header_center_y)
+
+
 @pytest.mark.parametrize("rows", ROW_COUNTS)
 def test_grid_stays_inside_the_safe_area(device: Device, rows: int):
     lay = L.compute(device.width, device.height, rows, COLUMNS, GROUPS)
@@ -314,7 +323,9 @@ def test_a_manual_nudge_moves_the_grid_and_stays_in_the_band(device: Device, shi
     plain = L.compute(device.width, device.height, 7, COLUMNS, GROUPS)
     nudged = L.compute(device.width, device.height, 7, COLUMNS, GROUPS, shift=shift)
 
-    assert nudged.grid_y >= L.SAFE_TOP * device.height
+    # Upwards the knob may reach into the clock's reserve — that is the point of
+    # it — but never into the status bar's own strip.
+    assert block_top(nudged) >= L.TOP_LIMIT * device.height - 1
     assert nudged.grid_y + nudged.grid_height <= L.grid_floor(device.height) + 1
     if shift > 0:
         assert nudged.grid_y >= plain.grid_y
@@ -329,18 +340,18 @@ def test_a_nudge_that_would_overflow_is_clamped(device: Device):
 
 
 @pytest.mark.parametrize("rows", [3, 7])
-def test_the_clock_preset_moves_the_grid_by_half_its_own_change(device: Device, rows: int):
-    """Lowering the ceiling by X moves a centred block by X/2 — and only that.
+def test_the_clock_preset_moves_the_grid_by_its_own_change(device: Device, rows: int):
+    """The block hangs from the clock, so lowering the ceiling by X moves it by X.
 
     Only holds while the block still fits: a grid tall enough to be squeezed by
-    the shorter band shrinks instead, and then its top moves further than half.
+    the shorter band shrinks instead, and then its top moves further.
     """
     standard = L.compute(device.width, device.height, rows, COLUMNS, GROUPS, clock="std")
     large = L.compute(device.width, device.height, rows, COLUMNS, GROUPS, clock="big")
     reserve = (L.CLOCK_TOP["big"] - L.CLOCK_TOP["std"]) * device.height
 
     assert standard.grid_height == large.grid_height
-    assert abs((large.grid_y - standard.grid_y) - reserve / 2) <= 2
+    assert abs((large.grid_y - standard.grid_y) - reserve) <= 2
 
 
 def test_a_tall_grid_shrinks_to_fit_a_lower_ceiling(device: Device):
@@ -357,3 +368,76 @@ def test_a_short_grid_does_not_slide_onto_the_buttons(device: Device):
     below = L.grid_floor(device.height) - (lay.grid_y + lay.grid_height)
 
     assert below > 0.05 * device.height
+
+
+def test_a_title_takes_its_room_from_the_clock_not_from_the_dots():
+    """The strip above the grid is the clock's reserve, and it stands empty.
+
+    Taking the title out of it keeps the field the size it would have been —
+    give or take the pixel the band loses to rounding — instead of pushing the
+    dots down the screen.
+    """
+    plain = L.compute(1179, 2556, rows=53, columns=14, groups=2)
+    named = L.compute(1179, 2556, rows=53, columns=14, groups=2, title=True)
+
+    assert named.title_center_y > 0
+    assert named.title_center_y < named.grid_y
+    assert plain.title_center_y == 0
+    # Not one pixel of the field is spent on it.
+    assert named.grid_y == plain.grid_y
+    assert named.pitch_y == plain.pitch_y
+    assert named.dot == plain.dot
+
+
+def test_a_title_sits_clear_of_the_grid_it_names():
+    named = L.compute(1179, 2556, rows=53, columns=14, groups=2, title=True)
+
+    assert named.title_center_y + named.title_font // 2 < named.grid_y
+
+
+@pytest.mark.parametrize(("smaller", "bigger"), [("s", "m"), ("m", "l")])
+def test_a_name_can_be_set_bigger_without_moving_the_dots(smaller: str, bigger: str):
+    """The size knob spends the clock's reserve, never the field."""
+    small = L.compute(1179, 2556, rows=53, columns=14, groups=2, title=True, title_size=smaller)
+    large = L.compute(1179, 2556, rows=53, columns=14, groups=2, title=True, title_size=bigger)
+
+    assert large.title_font > small.title_font
+    assert large.title_center_y < small.title_center_y  # taller type sits higher
+    assert large.grid_y == small.grid_y
+    assert large.pitch_y == small.pitch_y
+
+
+def test_an_unknown_name_size_is_refused():
+    with pytest.raises(L.TitleSizeError):
+        L.parse_title_size("huge")
+
+
+def test_the_grid_hangs_from_the_clock_until_the_nudge_moves_it(device: Device):
+    """Nothing to gain from centring a block that cannot fill the band anyway."""
+    hung = L.compute(device.width, device.height, 3, COLUMNS, GROUPS)
+
+    assert abs(block_top(hung) - round(L.CLOCK_TOP["std"] * device.height)) <= 1
+
+
+def test_a_nudge_upwards_reaches_into_the_clocks_own_reserve(device: Device):
+    """The reserve is one guess at a clock; a shorter one leaves room above."""
+    plain = L.compute(device.width, device.height, 3, COLUMNS, GROUPS)
+    lifted = L.compute(device.width, device.height, 3, COLUMNS, GROUPS, shift=-10)
+
+    assert lifted.grid_y < plain.grid_y
+    assert block_top(lifted) < round(L.CLOCK_TOP["std"] * device.height)
+    assert block_top(lifted) >= round(L.TOP_LIMIT * device.height) - 1
+
+
+def test_a_nudge_upwards_stops_at_the_status_bar(device: Device):
+    lifted = L.compute(device.width, device.height, 3, COLUMNS, GROUPS, shift=-15)
+
+    assert block_top(lifted) >= round(L.TOP_LIMIT * device.height) - 1
+
+
+def test_a_name_follows_the_grid_when_the_nudge_moves_it():
+    plain = L.compute(1179, 2556, rows=3, columns=14, groups=2, title=True)
+    lifted = L.compute(1179, 2556, rows=3, columns=14, groups=2, title=True, shift=-10)
+
+    assert lifted.title_center_y < plain.title_center_y
+    assert lifted.title_center_y + lifted.title_font // 2 < lifted.grid_y

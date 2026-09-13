@@ -94,20 +94,20 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `d`  | screen preset                      | `i16`   | `i16`, `i16p`, `i16pm`                    |
 | `w`  | explicit width (with `h`)          | —       | 320–4096, overrides `d`                   |
 | `h`  | explicit height (with `w`)         | —       | 320–4096, and `w`×`h` at most 4.2 Mpx     |
-| `s`  | dot shape                          | `c`     | `c` circle, `r` rounded square            |
+| `s`  | dot shape                          | `r`     | `c` circle, `r` rounded square            |
 | `th` | background preset                  | `light` | see the theme list below                  |
 | `fg` | dot color, overrides the theme     | —       | Solarized name or hex (`dc322f`, `f00`)   |
 | `bg` | background, overrides the theme    | —       | same                                      |
 | `a`  | today's color                      | `orange`| same                                      |
 | `ax` | weekday and month labels           | `1`     | `1`, `0`                                  |
-| `lb` | where the labels go                | `left`  | `left`, `right`, `split`                  |
+| `lb` | where the labels go                | `split` | `split`, `left`, `right`                  |
 | `hdr`| what runs along the top            | `days`  | `days` MO TU…, `count` 7 · 14, `none`     |
 | `lang` | wording on the axes and footer   | `en`    | `en`, `ru`                                |
 | `wd` | first day of the week              | `0`     | `0` Monday … `6` Sunday                   |
 | `ck` | room kept for the lock screen clock| `big`   | `big` for the tall iOS clock, `std`       |
 | `sh` | nudge the grid, percent of height  | `0`     | `-15`…`15`, clamped to the safe band      |
 | `ink`| strong end of the ramp             | `bright`| `bright`, `cream`                         |
-| `ft` | what the footer says               | `pct`   | `pct`, `left`, `week`, `none`             |
+| `ft` | what the footer says               | `week`  | `pct`, `left`, `week`, `none`             |
 | `br` | period the progress rule fills     | `1`     | `1` span, `year`, `quarter`, `month`, `0` |
 | `mb` | start every month on a fresh row   | `0`     | `1`, `0`                                  |
 | `fd` | fade older past days               | `1`     | `1`, `0`                                  |
@@ -115,10 +115,13 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `sp` | gap between weeks in a row         | `1`     | `1`, `0`                                  |
 | `we` | band behind the days not worked    | `1`     | `1`, `0`                                  |
 | `pc` | production calendar behind the band| `0`     | `0` weekends only, `ru` Russia            |
-| `mk` | tint the last day of each month    | `1`     | `1`, `0`                                  |
+| `mk` | tint the last day of each month    | `0`     | `1`, `0`                                  |
 | `mc` | month-end tint                     | `orange`| Solarized name or hex                     |
 | `m`  | tint a rule's days, repeatable     | —       | `<rule>[~]@<color>[@<label>]`             |
-| `q`  | a line for the day under the grid  | `0`     | `1`, `0`                                  |
+| `ti` | a name for the span, over the grid | —       | up to 60 characters                       |
+| `ts` | how big that name is set           | `m`     | `s`, `m`, `l`                             |
+| `tc` | colour of that name                | `auto`  | `auto`, or a Solarized name or hex        |
+| `q`  | a line for the day under the grid  | `1`     | `1`, `0`                                  |
 | `qt` | your own line, instead of the day's| —       | up to 240 characters                      |
 | `qa` | who said it                        | —       | up to 60 characters                       |
 | `sky`| sun and moon on the footer line    | `none`  | `none`, `moon`, `sun`, `both`             |
