@@ -66,6 +66,10 @@
                 0 0 80px -20px rgba(42,161,152,.10);
 
     --link:#268bd2;
+    --switch-on-fill:rgba(133,153,0,.14); --switch-on-edge:rgba(133,153,0,.42);
+    --switch-on-ink:#5c6b00;
+    --switch-off-fill:rgba(220,50,47,.10); --switch-off-edge:rgba(220,50,47,.32);
+    --switch-off-ink:#9c3330;
     --focus:rgba(38,139,210,.6);
     --sel-bg:rgba(38,139,210,.25); --sel-fg:#073642;
     --aurora:.55;
@@ -99,6 +103,10 @@
                 0 0 80px -20px rgba(42,161,152,.06);
 
     --link:#59c2ff;
+    --switch-on-fill:rgba(133,153,0,.20); --switch-on-edge:rgba(133,153,0,.48);
+    --switch-on-ink:#a9bf3a;
+    --switch-off-fill:rgba(220,50,47,.16); --switch-off-edge:rgba(220,50,47,.40);
+    --switch-off-ink:#e08b88;
     --focus:rgba(0,220,255,.5);
     --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
     --aurora:.95;
@@ -126,6 +134,10 @@
                   0 0 80px -20px rgba(42,161,152,.06);
 
       --link:#59c2ff;
+    --switch-on-fill:rgba(133,153,0,.20); --switch-on-edge:rgba(133,153,0,.48);
+    --switch-on-ink:#a9bf3a;
+    --switch-off-fill:rgba(220,50,47,.16); --switch-off-edge:rgba(220,50,47,.40);
+    --switch-off-ink:#e08b88;
       --focus:rgba(0,220,255,.5);
       --sel-bg:rgba(120,40,220,.4); --sel-fg:#ededed;
       --aurora:.95;
@@ -235,7 +247,7 @@
   @media (max-width:640px) { fieldset.split { grid-template-columns:1fr; } }
   /* Ten swatches do not fit half a panel, and wrapping them onto a second line
      makes the pair of columns sit at different heights. */
-  .split .row.full { grid-column:1 / -1; }
+  .split .row.full, .split .full { grid-column:1 / -1; }
   /* A <legend> is laid out inside the fieldset's top border, which a rounded,
      filled panel has no notch for. Taking it out of flow puts it where a
      heading belongs and leaves the border unbroken; the panel's top padding is
@@ -253,6 +265,19 @@
      for. Rows are hidden from script (a span-only date, a location the moon
      does not need), so the rule has to be stated. */
   .row[hidden] { display:none; }
+  /* The name's own knobs. There is nothing to set until there is a name, so the
+     two rows are folded away — and they unfold rather than appear: a row that
+     blinks into a panel reads as the page having changed its mind. The height
+     they open to is measured and handed over as --row-h, because a max-height
+     guessed too large spends most of the animation on empty space. */
+  .row[data-needs-name] {
+    overflow:hidden; max-height:var(--row-h, 5rem);
+    transition:max-height .3s var(--ease), opacity .22s var(--ease),
+               margin-bottom .3s var(--ease), transform .3s var(--ease);
+  }
+  .row[data-needs-name][data-folded] {
+    max-height:0; margin-bottom:0; opacity:0; transform:translateY(-6px);
+  }
   .row > label { font-size:13px; color:var(--ink-dim); }
   /* A fixed label column costs a third of a phone screen, which is what pushed
      the text fields into a sliver. Below that width the label sits above. */
@@ -275,6 +300,20 @@
     background:var(--ink); border-color:var(--ink); color:var(--page);
   }
 
+  /* A switch wears its state as a tint rather than as a pair of words: green
+     for on, red for off, both taken down to a wash — this is a setting, not an
+     alarm, and eight of them in a panel must not shout at once. */
+  .seg button.switch { min-width:64px; font-variant-numeric:tabular-nums; }
+  .seg button.switch[data-state="on"] {
+    color:var(--switch-on-ink); border-color:var(--switch-on-edge);
+    background:var(--switch-on-fill);
+  }
+  .seg button.switch[data-state="off"] {
+    color:var(--switch-off-ink); border-color:var(--switch-off-edge);
+    background:var(--switch-off-fill);
+  }
+  .seg button.switch[aria-pressed="true"] { color:var(--switch-on-ink); }
+
   .swatches { display:inline-flex; flex-wrap:wrap; gap:6px; }
   .swatches button {
     width:26px; height:26px; border-radius:50%; border:2px solid transparent;
@@ -284,6 +323,9 @@
   .swatches button:hover { transform:translateY(-1px) scale(1.08); }
   .swatches button:active { transform:scale(.9); }
   .swatches button[aria-pressed="true"] { border-color:var(--ink); }
+  .swatches button.auto {
+    background:linear-gradient(135deg, var(--ink-dim) 0 50%, var(--page) 50% 100%);
+  }
 
   input[type=text] {
     font:inherit; color:var(--ink); background:var(--field);
@@ -337,8 +379,7 @@
     background:radial-gradient(ellipse at 50% 45%, var(--stage-glow) 0%, transparent 70%);
     filter:blur(46px);
   }
-  :root.dragging aside, :root.dragging .phone, :root.dragging .sheet,
-  :root.dragging .sheet::before { transition:none; }
+  :root.dragging aside, :root.dragging .phone, :root.dragging .sheet { transition:none; }
   .phone {
     /* The framing scales the device, not the picture inside it: a screenshot
        growing behind a frame that stays put reads as a bug, not as a zoom. */
@@ -383,13 +424,8 @@
      under them for the footer. The whole phone when the panel is about the
      whole phone. */
   .shot { display:block; width:100%; height:100%; object-fit:cover; }
-  .screen::after {
-    content:""; position:absolute; inset:0; pointer-events:none;
-    background:linear-gradient(180deg, rgba(0,0,0,.15) 0%, transparent 25%,
-                                       transparent 75%, rgba(0,0,0,.2) 100%);
-  }
-  /* The island is hardware, so it belongs to the shell. The clock and the home
-     indicator are not: pv=1 already draws those into the wallpaper itself. */
+  /* The island is hardware, so it belongs to the shell. The buttons and the home
+     indicator are not: pv=1 draws those into the wallpaper itself. */
   .island {
     position:absolute; z-index:2; left:50%; transform:translateX(-50%); background:#000;
     top:calc(11px * var(--s)); width:calc(126px * var(--s)); height:calc(37px * var(--s));
@@ -400,6 +436,29 @@
     width:calc(12px * var(--s)); height:calc(12px * var(--s)); border-radius:50%;
     background:#141417; box-shadow:inset 0 0 3px rgba(0,0,0,.8);
   }
+  /* The clock and the date are the one part of the mock-up the picture cannot
+     carry: the picture is cached until midnight, and a clock is wrong a minute
+     after it is stored. So the page writes them, off the reader's own clock,
+     on the fractions of the screen preview.py keeps for them — DATE_Y 0.093,
+     CLOCK_Y["big"] 0.20, and the two type sizes beside them. The builder never
+     sends ck, so the server always draws the tall clock's reserve; these match
+     it. The tone comes from the picture itself: see mockInk(). */
+  .mock-clock {
+    position:absolute; inset:0; z-index:2; pointer-events:none; text-align:center;
+    --screen-h:calc(393px * var(--s) * var(--ratio) - 24px * var(--s));
+    color:var(--mock-ink, rgba(0,0,0,.72));
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  .mock-date, .mock-time {
+    position:absolute; left:0; right:0; transform:translateY(-50%); line-height:1;
+  }
+  .mock-date { top:calc(var(--screen-h) * 0.093); font-size:calc(var(--screen-h) * 0.017); }
+  .mock-time {
+    top:calc(var(--screen-h) * 0.20); font-size:calc(var(--screen-h) * 0.155);
+    font-weight:250; letter-spacing:-.02em;
+  }
+
   @media (max-width:420px) { .phone { --s:.6; } }
 
   /* The link is the product, so it gets a shelf of its own at the foot of the
@@ -409,9 +468,8 @@
      hides the end of the very thing you are meant to read. */
   .dock { position:fixed; z-index:20; left:0; right:0; bottom:0; padding:0 24px 18px; pointer-events:none; }
   .dock-inner {
-    /* Centred, not bottom-aligned: the endpoint wraps to two and three lines as
-       the link grows, and anchoring the buttons to its last line made them walk
-       down the dock as you typed. */
+    /* Centred, not bottom-aligned: the endpoint is one line whatever it says, so
+       there is nothing for the buttons to be anchored to but its middle. */
     pointer-events:auto; display:flex; gap:16px; align-items:center;
     max-width:1240px; margin:0 auto; padding:14px 16px;
     border:1px solid var(--edge); border-top-color:var(--edge-top);
@@ -434,14 +492,24 @@
     *, *::before, *::after { animation:none !important; transition:none !important; }
     .cursor-glow { display:none; }
   }
+  /* One line that scrolls sideways rather than three that wrap: a link is read
+     by its ends — which endpoint, which settings — and a wrapped block of it
+     pushes everything under it down the page. The bar itself is hidden; a line
+     of type with a scrollbar under it reads as a control, and this is text. */
   #url {
-    cursor:text; color:var(--ink); overflow-wrap:anywhere;
+    cursor:text; color:var(--ink);
+    white-space:nowrap; overflow-x:auto; overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
     font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+  #url::-webkit-scrollbar { display:none; }
   .dock-actions { display:flex; gap:8px; flex-shrink:0; }
   @media (max-width:560px) {
     .dock-inner { flex-direction:column; align-items:stretch; }
+    /* Copy and Share share the row; the two icons take what they need and no
+       more, so all four stay on one line at phone width. */
     .dock-actions .action { flex:1; }
+    .dock-actions .action.icon { flex:0 0 auto; }
   }
 
 
@@ -490,6 +558,30 @@
   /* Square, because it holds a mark rather than a word. */
   .action.icon { padding:5px 9px; }
   .action.icon svg { display:block; }
+  /* Reset throws away everything the page knows, so it takes two presses: the
+     first one only arms it, and it forgets again in a few seconds. Red, but the
+     muted red of a switch that is off — a button, not an alarm. */
+  .action.danger {
+    display:inline-flex; align-items:center;
+    color:var(--switch-off-ink); border-color:var(--switch-off-edge);
+  }
+  .action.danger:hover {
+    color:var(--switch-off-ink); border-color:var(--switch-off-ink);
+    background:var(--switch-off-fill);
+  }
+  .action.danger[data-armed] {
+    background:var(--switch-off-fill); border-color:var(--switch-off-ink);
+  }
+  /* The word arrives by widening the button, which pushes the row along with
+     it: a label that blinked into existence read as a second button appearing.
+     Width rather than display, because display cannot be animated. */
+  .action.danger .reset-label {
+    display:inline-block; overflow:hidden; white-space:nowrap;
+    max-width:0; opacity:0; margin-left:0; font-size:13px;
+    transition:max-width .28s var(--ease), opacity .2s var(--ease),
+               margin-left .28s var(--ease);
+  }
+  .action.danger[data-armed] .reset-label { max-width:6em; opacity:1; margin-left:7px; }
 
   /* The phone list sits with the two numbers it fills in. */
   #model {
@@ -726,20 +818,27 @@
        colour at all, and the length it fades over is a registered property, so
        it can be transitioned like any other. */
     aside {
-      -webkit-mask-image:linear-gradient(180deg, transparent 0, #000 var(--fog), #000 100%);
-              mask-image:linear-gradient(180deg, transparent 0, #000 var(--fog), #000 100%);
+      /* Not a smoothstep: it bites at once — a hard turn into the ground right
+         at the edge — and then takes its time, approaching solid so slowly that
+         there is no second corner for the eye to find. 1 - e^-4y, in stops. */
+      --fade:linear-gradient(180deg,
+        rgba(0,0,0,0)    0,
+        rgba(0,0,0,.28)  calc(var(--fog) * .08),
+        rgba(0,0,0,.47)  calc(var(--fog) * .16),
+        rgba(0,0,0,.62)  calc(var(--fog) * .24),
+        rgba(0,0,0,.75)  calc(var(--fog) * .34),
+        rgba(0,0,0,.84)  calc(var(--fog) * .45),
+        rgba(0,0,0,.91)  calc(var(--fog) * .58),
+        rgba(0,0,0,.96)  calc(var(--fog) * .72),
+        rgba(0,0,0,.99)  calc(var(--fog) * .86),
+        rgba(0,0,0,1)    var(--fog),
+        rgba(0,0,0,1)    100%);
+      -webkit-mask-image:var(--fade);
+              mask-image:var(--fade);
       transition:--fog var(--zoom) var(--ease-zoom),
                  padding-bottom var(--zoom) var(--ease-zoom);
     }
-    :root[data-zoom="on"] aside { --fog:52px; }
-    /* The bottom needs no line either: the sheet's own colour rises off its
-       edge and takes the cut with it. */
-    .sheet::before {
-      content:""; position:absolute; left:0; right:0; bottom:100%; height:56px;
-      background:linear-gradient(0deg, var(--sheet) 0%, transparent 100%);
-      opacity:0; transition:opacity var(--zoom) var(--ease-zoom); pointer-events:none;
-    }
-    :root[data-zoom="on"] .sheet::before { opacity:1; }
+    :root[data-zoom="on"] aside { --fog:84px; }
     aside .hint { display:none; }
     .stage { padding:0; margin:0; }
     .stage::before { inset:0; }
@@ -819,8 +918,11 @@
       border:none; background:none; box-shadow:none; backdrop-filter:none;
       padding:0; gap:10px; flex-direction:column; align-items:stretch;
     }
-    .dock-actions { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; }
-    /* At the bottom rest the sheet is the link and these three: they have to be
+    /* Copy and Share split what is left; the two icons take what they need.
+       The reset button grows when it is armed, so its track is auto too — the
+       word pushes the row along instead of falling under it. */
+    .dock-actions { display:grid; grid-template-columns:1fr 1fr auto auto; gap:6px; }
+    /* At the bottom rest the sheet is the link and these four: they have to be
        small enough that the whole row still fits inside the peek. */
     .dock-actions .action {
       justify-content:center; padding:5px 6px; font-size:12.5px; line-height:1.35;
@@ -840,9 +942,6 @@
     }
     .cal.open, .cal.flip.open { transform:translate(-50%, -50%); }
 
-    /* One line, always: on a phone the link is there to be copied, not read,
-       and three wrapped lines of it push the settings off the screen. */
-    #url { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .dock .label { margin-bottom:5px; }
   }
 
@@ -900,6 +999,10 @@
         </div>
         <div class="screen">
           <img class="shot" id="shot" alt="wallpaper preview">
+          <div class="mock-clock" aria-hidden="true">
+            <div class="mock-date" id="mock-date"></div>
+            <div class="mock-time" id="mock-time"></div>
+          </div>
           <div class="island"></div>
         </div>
       </div>
@@ -982,6 +1085,12 @@
       </div>
     </fieldset>
 
+    <fieldset class="panel wide">
+      <legend>Theme</legend>
+      <div class="row"><label>Background</label><span class="seg" data-key="th"></span></div>
+      <div class="row"><label>Dots</label><span class="seg" data-key="ink"></span></div>
+    </fieldset>
+
     <fieldset class="panel">
       <legend>Grid</legend>
       <div class="row"><label>Shape</label><span class="seg" data-key="s"></span></div>
@@ -993,6 +1102,14 @@
 
     <fieldset class="panel">
       <legend>Labels</legend>
+      <div class="row full">
+        <label for="ti">Name</label>
+        <span>
+          <input type="text" id="ti" maxlength="60" placeholder="a name for the span, over the grid">
+        </span>
+      </div>
+      <div class="row" data-needs-name data-folded><label>Name size</label><span class="seg" data-key="ts"></span></div>
+      <div class="row full" data-needs-name data-folded><label>Name colour</label><span class="swatches" data-key="tc"></span></div>
       <div class="row"><label>Axes</label><span class="seg" data-key="ax"></span></div>
       <div class="row"><label>Placement</label><span class="seg" data-key="lb"></span></div>
       <div class="row"><label>Top axis</label><span class="seg" data-key="hdr"></span></div>
@@ -1001,19 +1118,27 @@
       <div class="row"><label>Week starts</label><span class="seg" data-key="wd"></span></div>
     </fieldset>
 
+
+
     <fieldset class="panel wide split">
       <legend>Highlights</legend>
+      <div class="row full"><label>Today</label><span class="swatches" data-key="a"></span></div>
       <div class="row"><label>Weekends</label><span class="seg" data-key="we"></span></div>
       <div class="row"><label>Production calendar</label><span class="seg" data-key="pc"></span></div>
       <div class="row"><label>Month ends</label><span class="seg" data-key="mk"></span></div>
-      <div class="row full"><label>Today</label><span class="swatches" data-key="a"></span></div>
-      <div class="row full"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
-    </fieldset>
-
-    <fieldset class="panel wide">
-      <legend>Theme</legend>
-      <div class="row"><label>Background</label><span class="seg" data-key="th"></span></div>
-      <div class="row"><label>Dots</label><span class="seg" data-key="ink"></span></div>
+      <!-- A colour for a mark that is switched off is a knob with nothing on the
+           other end of it: the row goes with its own toggle. -->
+      <div class="row full" data-needs="mk"><label>Month end</label><span class="swatches" data-key="mc"></span></div>
+      <p class="hint full" id="marker-empty">
+        Your own days — a weekly night out, the days a month turns on, one
+        deadline, a whole holiday — take a tinted cell. Press <b>+ Marker</b>,
+        name it, pick the days and a colour.
+      </p>
+      <div id="marker-list" class="full"></div>
+      <div class="marker-foot full">
+        <button type="button" class="action small" id="marker-add">+ Marker</button>
+        <span class="hint" id="marker-cap"></span>
+      </div>
     </fieldset>
 
     <fieldset class="panel wide">
@@ -1053,19 +1178,6 @@
       <p class="hint" id="quote-preview"></p>
     </fieldset>
 
-    <fieldset class="panel wide">
-      <legend>Markers</legend>
-      <p class="hint" id="marker-empty">
-        Your own days — a weekly night out, the days a month turns on, one
-        deadline, a whole holiday — take a tinted cell. Press <b>+ Marker</b>,
-        name it, pick the days and a colour.
-      </p>
-      <div id="marker-list"></div>
-      <div class="marker-foot">
-        <button type="button" class="action small" id="marker-add">+ Marker</button>
-        <span class="hint" id="marker-cap"></span>
-      </div>
-    </fieldset>
     <p class="colophon">
       <a class="lnk" href="https://github.com/CosmDandy/wallcal" target="_blank"
          rel="noopener">Source on GitHub</a><span class="sep">·</span><a class="lnk"
@@ -1104,6 +1216,15 @@
           <path d="M9.4 9.2a2.7 2.7 0 1 1 3.4 2.6c-.5.2-.8.6-.8 1.1v.7"/>
           <path d="M12 17h.01"/>
         </svg>
+      </button>
+      <button class="action icon danger" id="reset-btn"
+              aria-label="Throw away every setting" title="Throw away every setting">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.2 10.5a8 8 0 1 1 .6 5.2"/>
+          <path d="M3 4.5v6h6"/>
+        </svg>
+        <span class="reset-label">Sure?</span>
       </button>
     </div>
   </div>
@@ -1144,7 +1265,6 @@ const RU = {
   // panels
   "Span": "Период", "Screen": "Экран", "Grid": "Сетка", "Labels": "Подписи",
   "Highlights": "Выделения", "Theme": "Оформление", "Footer": "Подвал",
-  "Markers": "Метки",
   // rows
   "Mode": "Режим", "From": "С", "To": "По", "Presets": "Быстрый выбор",
   "Size": "Размер", "Nudge": "Сдвиг", "Shape": "Форма",
@@ -1158,6 +1278,10 @@ const RU = {
   "Line": "Строка", "Progress rule": "Полоса прогресса",
   "Quote of the day": "Цитата дня", "Sun and moon": "Солнце и луна",
   "Day length": "Долгота дня", "Your own line": "Своя строка",
+  "Name": "Название", "Name size": "Размер названия",
+  "Name colour": "Цвет названия", "Auto": "Авто",
+  "Small": "Мелко", "Medium": "Средне", "Large": "Крупно",
+  "a name for the span, over the grid": "название периода, над сеткой",
   "Attributed to": "Автор", "Location": "Место",
   "Pull back off days nobody works": "Сдвигать с нерабочих дней",
   // buttons and values
@@ -1178,6 +1302,7 @@ const RU = {
   "Weekdays": "Дни недели", "Day of month": "Число месяца",
   "One date": "Одна дата", "A stretch": "Промежуток",
   "Reset": "Сброс", "Shuffle": "Наугад", "Rotation": "Ротация",
+  "Throw away every setting": "Сбросить все настройки", "Sure?": "Точно?",
   "Locate": "Определить", "+ Marker": "+ Метка",
   // the dock
   "Endpoint": "Ссылка", "Copy": "Копировать", "Share": "Поделиться",
@@ -1233,28 +1358,29 @@ const WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const OPTIONS = {
   sh: { def:"0",    items:[] },  // a slider, not buttons — see the range input
   ink:{ def:"bright", items:[["bright","Bright"],["cream","Cream"]] },
-  s:  { def:"c",    items:[["c","Circle"],["r","Rounded"]] },
+  s:  { def:"r",    items:[["c","Circle"],["r","Rounded"]] },
   g:  { def:"2",    items:[["1","1"],["2","2"],["3","3"],["4","4"]] },
   sp: { def:"1",    items:[["1","On"],["0","Off"]] },
   mb: { def:"0",    items:[["1","On"],["0","Off"]] },
   fd: { def:"1",    items:[["1","On"],["0","Off"]] },
   ax: { def:"1",    items:[["1","On"],["0","Off"]] },
-  lb: { def:"left", items:[["left","Left"],["right","Right"],["split","Split"]] },
+  ts: { def:"m",    items:[["s","Small"],["m","Medium"],["l","Large"]] },
+  lb: { def:"split", items:[["split","Split"],["left","Left"],["right","Right"]] },
   wk: { def:"iso",  items:[["iso","ISO week"],["n","From start"]] },
   hdr:{ def:"days", items:[["days","MO TU"],["count","7 · 14"],["none","None"]] },
   lang:{ def:"en",  items:[["en","English"],["ru","Русский"]] },
   wd: { def:"0",    items:[["0","Monday"],["6","Sunday"]] },
   we: { def:"1",    items:[["1","On"],["0","Off"]] },
   pc: { def:"0",    items:[["0","Off"],["ru","Russia"]] },
-  mk: { def:"1",    items:[["1","On"],["0","Off"]] },
+  mk: { def:"0",    items:[["1","On"],["0","Off"]] },
   th: { def:"light", items:[
         ["light","Paper"],["dark","Ink"],["gray","Graphite"],
         ["white","White"],["black","Black"],
         // The iPhone 16 finishes, in their published sRGB values.
         ["teal","Teal"],["ultramarine","Ultramarine"],["pink","Pink"],["onyx","Onyx"],
         ["sand","Desert"],["natural","Natural"]] },
-  q:  { def:"0",    items:[["1","On"],["0","Off"]] },
-  ft: { def:"pct",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
+  q:  { def:"1",    items:[["1","On"],["0","Off"]] },
+  ft: { def:"week",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
   br: { def:"1",    items:[["1","Span"],["year","Year"],["quarter","Quarter"],["month","Month"],["0","Off"]] },
   sky:{ def:"none", items:[["none","None"],["moon","Moon"],["sun","Sun"],["both","Both"]] },
   dl: { def:"1",    items:[["1","On"],["0","Off"]] },
@@ -1263,6 +1389,9 @@ const OPTIONS = {
 const SWATCHES = {
   a:  { def:"orange" },
   mc: { def:"orange" },
+  // A name has no colour of its own until asked: "auto" is the tone the footer
+  // is set in, which is what a title looked like before this knob existed.
+  tc: { def:"auto", auto:true },
 };
 const HUES = [
   ["orange","#cb4b16"], ["red","#dc322f"], ["magenta","#d33682"], ["violet","#6c71c4"],
@@ -1338,14 +1467,20 @@ const PREVIEW_STEP = 160;
 function previewSize() {
   const real = screenSize();
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  // A tenth over what is on screen now: the sheet moves, the phone grows with
-  // it, and a preview ordered a step too small would be the soft one.
-  const shown = (phone.getBoundingClientRect().width || 300) * dpr * 1.1;
+  // The layout box, never the transformed rect. The zoom changes the rect on
+  // every chip and every rest, and ordering a new drawing for each one is what
+  // made the preview blink. On a phone the zoom is capped by the screen's own
+  // width, so that is the widest the picture is ever shown at.
+  const box = phone.offsetWidth || 300;
+  const shown = (window.innerWidth <= 700
+    ? Math.min(window.innerWidth - 28, box * 2.2)
+    : box * 1.1) * dpr;
   const width = Math.max(320, Math.ceil(shown / PREVIEW_STEP) * PREVIEW_STEP);
   if (width >= real.w) return real;
   return { w: width, h: Math.max(320, Math.round((width * real.h) / real.w)) };
 }
 const fromInput = document.getElementById("from");
+const titleField = document.getElementById("ti");
 const quoteText = document.getElementById("qt");
 const quoteAuthor = document.getElementById("qa");
 const quoteHint = document.getElementById("quote-preview");
@@ -1365,6 +1500,85 @@ function wantQuotes() {
 const toInput = document.getElementById("to");
 const urlBox = document.getElementById("url");
 const shot = document.getElementById("shot");
+
+
+// ── The mock-up's clock ──────────────────────────────────────────────────────
+// It is written here rather than drawn into the wallpaper because the wallpaper
+// is cached until midnight — a clock baked into it would still read 9:41 hours
+// later — and because the server's idea of "now" is whatever zone the container
+// runs in, which is not the zone you are standing in. The browser knows both.
+
+const mockDate = document.getElementById("mock-date");
+const mockTime = document.getElementById("mock-time");
+// Whether this reader's locale writes 18:09 or 6:09. The lock screen leaves the
+// am/pm off either way, so only the hour changes shape.
+const TWELVE_HOUR = Boolean(
+  new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12);
+
+function paintMockClock() {
+  const now = new Date();
+  const hours = now.getHours();
+  const hour = TWELVE_HOUR ? hours % 12 || 12 : String(hours).padStart(2, "0");
+  mockTime.textContent = `${hour}:${String(now.getMinutes()).padStart(2, "0")}`;
+  // Intl, not a table of our own: Russian wants the genitive month ("13
+  // сентября"), and the browser already carries every form of every name.
+  const locale = uiLang === "ru" ? "ru-RU" : "en-GB";
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "long" }).format(now);
+  const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long" }).format(now);
+  mockDate.textContent = `${weekday[0].toUpperCase()}${weekday.slice(1)}, ${day}`;
+}
+
+// On the minute, not every minute of running time: a tick that drifts lands on
+// :59 soon enough, and the number would then change a second late all evening.
+function tickMockClock() {
+  paintMockClock();
+  setTimeout(tickMockClock, 60000 - (Date.now() % 60000) + 50);
+}
+
+// The picture is the only thing that knows what the palette resolved to — a
+// theme name, a custom hex and the ink switch all land on tones the page never
+// computes. So read it back: the strip above the date is bare background by
+// construction, because the grid starts below the clock's reserve.
+const RAMP_STRONG = {
+  bright: { dark: [255, 255, 255], light: [0x07, 0x36, 0x42] },
+  cream: { dark: [0xee, 0xe8, 0xd5], light: [0x58, 0x6e, 0x75] },
+};
+const DARK_THRESHOLD = 0.2;   // palette.py
+const CHROME_ALPHA = 0.72;    // preview.py
+
+function relativeLuminance([r, g, b]) {
+  const channel = (value) => {
+    const srgb = value / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function mockInk() {
+  if (!shot.naturalWidth) return;
+  let background;
+  try {
+    // One row of the picture, scaled to a single pixel: the average of a strip
+    // that holds nothing but background is that background.
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(shot, 0, 0, shot.naturalWidth, Math.round(shot.naturalHeight * 0.04),
+      0, 0, 1, 1);
+    background = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  } catch {
+    return;   // a browser that will not let us read it keeps the fallback tone
+  }
+  const strong = RAMP_STRONG[state.ink === "cream" ? "cream" : "bright"][
+    relativeLuminance(background) < DARK_THRESHOLD ? "dark" : "light"];
+  const chrome = strong.map((tone, index) =>
+    Math.round(tone * CHROME_ALPHA + background[index] * (1 - CHROME_ALPHA)));
+  document.documentElement.style.setProperty("--mock-ink", `rgb(${chrome.join(",")})`);
+}
+
+shot.addEventListener("load", mockInk);
+tickMockClock();
+
 const model = document.getElementById("model");
 const screenW = document.getElementById("pw");
 const screenH = document.getElementById("ph");
@@ -1705,6 +1919,25 @@ function buildSegments() {
   for (const [key, spec] of Object.entries(OPTIONS)) {
     const host = document.querySelector(`.seg[data-key="${key}"]`);
     if (!host) continue;
+    // On and Off are not a choice between two things, they are one thing that
+    // is either on or not: a single button saying which, tinted for it.
+    const pair = spec.items.length === 2
+      && spec.items.every(([, label]) => label === "On" || label === "Off");
+    if (pair) {
+      const [[on], [off]] = spec.items[0][1] === "On" ? spec.items : [...spec.items].reverse();
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "switch";
+      button.dataset.on = on;
+      button.dataset.off = off;
+      button.addEventListener("click", () => {
+        state[key] = state[key] === on ? off : on;
+        if (key === "q" && state[key] === on) { quoteText.value = ""; quoteAuthor.value = ""; }
+        render();
+      });
+      host.append(button);
+      continue;
+    }
     for (const [value, label] of spec.items) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1719,8 +1952,17 @@ function buildSegments() {
       host.append(button);
     }
   }
-  for (const key of Object.keys(SWATCHES)) {
+  for (const [key, spec] of Object.entries(SWATCHES)) {
     const host = document.querySelector(`.swatches[data-key="${key}"]`);
+    if (spec.auto) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "auto";
+      button.title = "Auto";
+      button.dataset.value = "auto";
+      button.addEventListener("click", () => { state[key] = "auto"; render(); });
+      host.append(button);
+    }
     for (const [name, hex] of HUES) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1797,10 +2039,12 @@ function original(node, attribute) {
 function paintLanguage() {
   uiLang = state.lang === "ru" ? "ru" : "en";
   document.documentElement.lang = uiLang;
+  paintMockClock();   // the date on the mock-up is written in the same language
   langButton.textContent = uiLang === "ru" ? "RU" : "EN";
 
   for (const node of document.querySelectorAll(
     "#controls legend, #controls .row > label, .dock .label span, .copy-label, " +
+    ".reset-label, " +
     "#controls .action, .bio, .marker-foot .action, .marker-pull span, " +
     ".help-head strong, #help-close, #model-any, " +
     "#modes button, #presets button, .colophon a")) {
@@ -1836,6 +2080,73 @@ langButton.addEventListener("click", () => {
   render();
 });
 
+// ── What the footer will say ────────────────────────────────────────────────
+// The three footer chips used to carry a frozen example — "6 / 122 · 4.9%" —
+// which is a format, not an answer. They now read out the span on screen, in
+// the same words the wallpaper itself uses (strings.py), so choosing a line is
+// choosing between three sentences you can already see.
+const DAY = 86_400_000;
+
+function spanNow() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const year = today.getFullYear(), month = today.getMonth();
+  if (mode === "year") return { start: new Date(year, 0, 1), end: new Date(year, 11, 31), today };
+  if (mode === "quarter") {
+    const q = Math.floor(month / 3);
+    return { start: new Date(year, q * 3, 1), end: new Date(year, q * 3 + 3, 0), today };
+  }
+  if (mode === "month") {
+    return { start: new Date(year, month, 1), end: new Date(year, month + 1, 0), today };
+  }
+  return { start: parseISO(fromInput.value), end: parseISO(toInput.value), today };
+}
+
+function footerCounts() {
+  const { start, end, today } = spanNow();
+  if (Number.isNaN(+start) || Number.isNaN(+end) || end < start) return null;
+  const days = (from, to) => Math.round((to - from) / DAY);
+  const total = days(start, end) + 1;
+  const elapsed = Math.max(0, Math.min(total, days(start, today) + 1));
+  // Weeks are counted from the day the rows start on, exactly as grid.py does,
+  // or the total here would not match the rows drawn.
+  const first = state.wd === "6" ? 0 : 1;   // JS counts Sunday as 0
+  const weekStart = (day) => new Date(day.getFullYear(), day.getMonth(),
+                                      day.getDate() - ((day.getDay() - first + 7) % 7));
+  const weeks = days(weekStart(start), weekStart(end)) / 7 + 1;
+  const week = today < start ? 0
+    : Math.min(weeks, days(weekStart(start), weekStart(today)) / 7 + 1);
+  return { total, elapsed, left: total - elapsed, done: elapsed / total, week, weeks };
+}
+
+function ruDays(count) {
+  const tail = count % 10, hundred = count % 100;
+  if (hundred >= 11 && hundred <= 14) return "дней";
+  if (tail === 1) return "день";
+  if (tail >= 2 && tail <= 4) return "дня";
+  return "дней";
+}
+
+function paintFooterSample() {
+  const seg = document.querySelector('.seg[data-key="ft"]');
+  if (!seg) return;
+  const counts = footerCounts();
+  const said = counts && {
+    pct: `${counts.elapsed} / ${counts.total}  ·  ${(counts.done * 100).toFixed(1)}%`,
+    left: uiLang === "ru"
+      ? (counts.left === 0 ? "Готово" : `осталось ${counts.left} ${ruDays(counts.left)}`)
+      : (counts.left === 0 ? "Done" : `${counts.left} day${counts.left === 1 ? "" : "s"} left`),
+    week: uiLang === "ru"
+      ? `Неделя ${counts.week} из ${counts.weeks}`
+      : `Week ${counts.week} of ${counts.weeks}`,
+  };
+  for (const button of seg.querySelectorAll("button")) {
+    const kind = button.dataset.value;
+    if (said && said[kind]) button.textContent = said[kind];
+    else if (button.dataset.en) button.textContent = t(button.dataset.en);
+  }
+}
+
 function paintSelection() {
   paintLanguage();
   paintModes();
@@ -1843,11 +2154,31 @@ function paintSelection() {
   paintScreen();
   paintSky();
   paintMarkers();
+  paintFooterSample();
+  // A colour for a mark that is switched off has nothing to colour.
+  for (const row of document.querySelectorAll("[data-needs]")) {
+    row.hidden = state[row.dataset.needs] !== "1";
+  }
+  const named = Boolean(titleField.value.trim());
+  for (const row of document.querySelectorAll("[data-needs-name]")) {
+    // Measured while it is still folded: overflow:hidden leaves scrollHeight
+    // telling the truth about the content underneath.
+    row.style.setProperty("--row-h", `${row.scrollHeight}px`);
+    row.toggleAttribute("data-folded", !named);
+    row.inert = !named;
+  }
   nudge.value = state.sh;
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
   document.querySelectorAll("[data-key]").forEach((host) => {
     const key = host.dataset.key;
     host.querySelectorAll("button").forEach((button) => {
+      if (button.classList.contains("switch")) {
+        const on = state[key] === button.dataset.on;
+        button.dataset.state = on ? "on" : "off";
+        button.textContent = t(on ? "On" : "Off");
+        button.setAttribute("aria-pressed", String(on));
+        return;
+      }
       button.setAttribute("aria-pressed", String(button.dataset.value === state[key]));
     });
   });
@@ -1863,6 +2194,8 @@ function query({ forPreview = false } = {}) {
     // A sun with nowhere to rise is a 400, and a link that answers 400 is worse
     // than a link with one knob missing. The hint under the panel says why.
     if (key === "sky" && skyFault()) continue;
+    // A size for a name nobody typed is a knob with nothing under it.
+    if ((key === "ts" || key === "tc") && !titleField.value.trim()) continue;
     if (state[key] !== spec.def) parts.push(`${key}=${state[key]}`);
   }
   for (const marker of markers) {
@@ -1871,6 +2204,7 @@ function query({ forPreview = false } = {}) {
   }
   const place = coordinates();
   if (state.sky !== "none" && place) parts.push(`lat=${place.lat}`, `lon=${place.lon}`);
+  if (titleField.value.trim()) parts.push(`ti=${encodeURIComponent(titleField.value.trim())}`);
   if (quoteText.value.trim()) {
     parts.push(`qt=${encodeURIComponent(quoteText.value.trim())}`);
     if (quoteAuthor.value.trim()) parts.push(`qa=${encodeURIComponent(quoteAuthor.value.trim())}`);
@@ -1887,11 +2221,14 @@ function save() {
   const snapshot = { ...state, mode, f: fromInput.value, t: toInput.value,
                      w: screenW.value, h: screenH.value,
                      lat: latField.value, lon: lonField.value,
-                     qt: quoteText.value, qa: quoteAuthor.value, m: markers };
+                     ti: titleField.value, qt: quoteText.value,
+                     qa: quoteAuthor.value, m: markers };
   try { localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); } catch {}
   // Also mirrored into this page's own address, so a reload or a shared builder
   // link restores the same settings even in a fresh browser.
-  const own = mode === "span" ? query() : `mode=${mode}&${query()}`;
+  const own = [mode === "span" ? "" : `mode=${mode}`, query()]
+    .filter(Boolean)
+    .join("&");
   history.replaceState(null, "", `?${own}`);
 }
 
@@ -1916,6 +2253,7 @@ function restore() {
   if (pick("t")) toInput.value = pick("t");
   screenW.value = pick("w") || SCREEN.w;
   screenH.value = pick("h") || SCREEN.h;
+  titleField.value = pick("ti") || "";
   quoteText.value = pick("qt") || "";
   quoteAuthor.value = pick("qa") || "";
   latField.value = pick("lat") || "";
@@ -1945,9 +2283,15 @@ let live = false;             // set once the sheet and its measurements exist
 let timer = null;
 function render() {
   paintSelection();
-  urlBox.textContent = `${location.origin}/w/${mode}.png?${query()}`;
+  // A perpetual link on the defaults has nothing to say: no dangling "?".
+  const params = query();
+  urlBox.textContent =
+    `${location.origin}/w/${mode}.png${params ? `?${params}` : ""}`;
   showQuote();
   save();
+  // The nudge and the quote both move the drawing on the screen, and the zoom
+  // frames the drawing — so a knob that moves it re-frames the phone as well.
+  if (live) frame();
   clearTimeout(timer);
   if (screenFault(screenSize())) return;   // half-typed numbers are not a screen
   // The wallpaper itself does not animate: a knob you turn should land at once,
@@ -1967,6 +2311,7 @@ document.getElementById("presets").addEventListener("click", (event) => {
   const preset = event.target.dataset.preset;
   if (preset) applyPreset(preset);
 });
+titleField.addEventListener("input", render);
 for (const field of [screenW, screenH, latField, lonField]) {
   field.addEventListener("input", render);
 }
@@ -2058,6 +2403,51 @@ function showHelp(on) {
   helpScrim.hidden = !on;
   if (on) document.getElementById("help-close").focus();
 }
+// Two presses, because there is no undo behind it. The second one reloads the
+// bare address: nothing kept, nothing restored, and the page comes up on its
+// own defaults the way a stranger's first visit does. The theme and the panel
+// you were in are preferences about the page rather than about the wallpaper,
+// so they stay.
+const resetButton = document.getElementById("reset-btn");
+let disarm = null;
+function armReset(on) {
+  clearTimeout(disarm);
+  if (on) {
+    resetButton.dataset.armed = "1";
+    disarm = setTimeout(() => armReset(false), 3500);
+  } else {
+    delete resetButton.dataset.armed;
+  }
+}
+// Everything the builder holds, put back where a first visit finds it. In place
+// rather than by reloading: a reload throws away the sheet you had open, the
+// panel you were in and the scroll you were at, and none of those are settings.
+function resetEverything() {
+  for (const [key, spec] of Object.entries(OPTIONS)) state[key] = spec.init ?? spec.def;
+  for (const [key, spec] of Object.entries(SWATCHES)) state[key] = spec.def;
+  // paintMarkers only ever grows the list — rows are dropped by the handler that
+  // deletes them — so the rows have to go with the array.
+  markers = [];
+  markerList.replaceChildren();
+  for (const field of [titleField, quoteText, quoteAuthor, latField, lonField]) field.value = "";
+  screenW.value = SCREEN.w;
+  screenH.value = SCREEN.h;
+  nudge.value = state.sh;
+  mode = "quarter";
+  // The builder mirrors itself into its own address, so the old settings have to
+  // leave it too, or the next reload would restore what was just thrown away.
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem(STORE_KEY); } catch {}
+  applyPreset("quarter");   // ends in render(), which repaints every chip
+}
+
+resetButton.addEventListener("click", () => {
+  if (!resetButton.dataset.armed) { armReset(true); return; }
+  armReset(false);
+  resetEverything();
+});
+resetButton.addEventListener("blur", () => armReset(false));
+
 document.getElementById("help-btn").addEventListener("click", () => showHelp(true));
 document.getElementById("help-close").addEventListener("click", () => showHelp(false));
 helpScrim.addEventListener("click", () => showHelp(false));
@@ -2403,7 +2793,9 @@ if (!UI_MODES.includes(uiChoice)) uiChoice = "auto";
 applyUiTheme(uiChoice);
 
 buildSegments();
-if (!restore()) applyPreset("year");
+// A first visit opens on the quarter you are in: a quarter is what a phone
+// screen draws well, and the dateless link it makes rolls over on its own.
+if (!restore()) { mode = "quarter"; applyPreset("quarter"); }
 render();
 
 
@@ -2509,16 +2901,49 @@ function placeDock() {
 // What each panel is about, as a slice of the wallpaper: the middle of the
 // slice and how tall it is, in fractions of the screen. Keyed by the English
 // legend, so translating the page does not move the camera.
-const FRAMING = {
-  "Span":       { tall: 0.50 },   // the field of days
-  "Screen":     { tall: 1.00 },   // the phone entire
-  "Grid":       { tall: 0.50 },
-  "Labels":     { at: 0.42, tall: 0.34 },   // weeks, months and the day row
-  "Highlights": { tall: 0.50 },
-  "Theme":      { tall: 1.00 },   // colour is a property of the whole
-  "Footer":     { at: 0.88, tall: 0.34 },   // the line and the rule under it
-  "Markers":    { tall: 0.50 },
+// Where the drawing actually sits, in fractions of the screen. These are
+// layout.py's own numbers, kept here so the zoom follows the picture instead of
+// a table of guesses: the grid hangs from the clock's reserve and the nudge
+// moves it, and a frame that ignored either would point at empty paper.
+const GEO = {
+  clockTop: 0.38,        // app.py serves ck=big, and the builder never sets it
+  topLimit: 0.08,        // the highest the nudge may pull the block
+  footerRow: 0.862,
+  footerSlot: 0.017 + 0.008,        // FOOTER_SIZE + QUOTE_CLEARANCE
+  quoteBand: 0.075 + 0.008,         // QUOTE_BAND + QUOTE_CLEARANCE
+  titleRoom: 0.05,       // the name, written above the block
 };
+
+function blockTop() {
+  // Only a lift is certain. Pushed down, the block moves by as much of the nudge
+  // as the band has spare — and the spare depends on how many rows there are,
+  // which is the server's arithmetic, not ours. So downwards the frame keeps the
+  // clock's own line: a little loose on a short grid, never pointing at paper.
+  return Math.max(GEO.topLimit, GEO.clockTop + Math.min(0, Number(state.sh)) / 100);
+}
+
+function gridFloor() {
+  const band = state.q === "1" || quoteText.value.trim() ? GEO.quoteBand : 0;
+  return GEO.footerRow - GEO.footerSlot - band;
+}
+
+// The smallest frame anything gets: the footer's. Closer than this and a panel
+// magnifies a detail past the point of telling you where it is.
+const CLOSEST = 0.34;
+
+function framingFor(name) {
+  if (name === "Screen" || name === "Theme") return { tall: 1 };   // the phone entire
+  if (name === "Footer") return { at: 0.88, tall: CLOSEST };       // the line and its rule
+  const pad = 0.03;
+  // Labels: the name above the block, the weekday row, and the first weeks —
+  // enough to see a month written down the side, not the whole field.
+  const from = Math.max(0, blockTop() - (name === "Labels" ? GEO.titleRoom : pad));
+  const to = name === "Labels"
+    ? Math.min(gridFloor(), blockTop() + 0.22)
+    : Math.min(1, gridFloor() + pad);
+  const tall = Math.max(CLOSEST, to - from);
+  return { at: from + tall / 2, tall };
+}
 
 function frame() {
   if (!mobile.matches) return;
@@ -2542,7 +2967,7 @@ function frame() {
   // where the sheet is out of the way, shows the phone whole.
   const zoomed = sheet.dataset.state !== "peek";
   // original() holds the English legend whatever the page is showing.
-  const view = zoomed && panel ? FRAMING[original(panel.querySelector("legend"))] : null;
+  const view = zoomed && panel ? framingFor(original(panel.querySelector("legend"))) : null;
   if (!view || view.tall >= 1) {
     phone.style.transform = `scale(${fit.toFixed(3)})`;
     // Even unmagnified the device can be taller than the window it sits in:

@@ -322,7 +322,7 @@ def test_a_stale_etag_gets_the_image(client: TestClient):
 def test_a_changed_setting_invalidates_the_etag(client: TestClient):
     first = client.get(f"/w/span.png?{SPAN}")
     stale = {"If-None-Match": first.headers["etag"]}
-    changed = client.get(f"/w/span.png?{SPAN}&s=r", headers=stale)
+    changed = client.get(f"/w/span.png?{SPAN}&s=c", headers=stale)
     assert changed.status_code == 200
 
 
@@ -362,13 +362,14 @@ def test_a_retired_parameter_is_simply_ignored(client: TestClient):
     assert client.get(f"/w/span.png?{SPAN}&yc=green").status_code == 200
 
 
-def test_the_quote_is_off_by_default_and_changes_the_image(client: TestClient):
-    plain = client.get(f"/w/span.png?{SPAN}")
-    quoted = client.get(f"/w/span.png?{SPAN}&q=1")
+def test_the_quote_is_on_by_default_and_can_be_switched_off(client: TestClient):
+    """A bare link is the wallpaper most people want, quote and all."""
+    quoted = client.get(f"/w/span.png?{SPAN}")
+    bare = client.get(f"/w/span.png?{SPAN}&q=0")
 
-    assert quoted.status_code == 200
-    assert quoted.content != plain.content
-    assert quoted.headers["etag"] != plain.headers["etag"]
+    assert bare.status_code == 200
+    assert bare.content != quoted.content
+    assert bare.headers["etag"] != quoted.headers["etag"]
 
 
 @pytest.mark.parametrize(
@@ -399,7 +400,7 @@ def test_fade_can_be_switched_off(client: TestClient):
     assert faded.content != flat.content
 
 
-@pytest.mark.parametrize("query", ["we=0", "mk=0", "we=0&mk=0"])
+@pytest.mark.parametrize("query", ["we=0", "mk=1", "we=0&mk=1"])
 def test_backdrops_can_be_switched_off(client: TestClient, query: str):
     plain = client.get(f"/w/span.png?{SPAN}&{query}")
     full = client.get(f"/w/span.png?{SPAN}")
@@ -431,6 +432,18 @@ def test_preview_draws_the_lock_screen_over_the_wallpaper(client: TestClient):
     assert preview.content != wallpaper.content
     with Image.open(io.BytesIO(preview.content)) as image:
         assert image.size == (DEVICES["i16"].width, DEVICES["i16"].height)
+
+
+def test_the_mock_up_is_cached_as_long_as_the_wallpaper_under_it(client: TestClient):
+    """Nothing on it belongs to the minute — the page writes the clock itself —
+    so the furniture costs the cache nothing."""
+    wallpaper = client.get(f"/w/span.png?{SPAN}")
+    preview = client.get(f"/w/span.png?{SPAN}&pv=1")
+
+    age = int(preview.headers["cache-control"].rsplit("=", 1)[1])
+    # Within a second of each other: the two requests are not simultaneous, and
+    # both are counting down to the same midnight.
+    assert abs(age - int(wallpaper.headers["cache-control"].rsplit("=", 1)[1])) <= 1
 
 
 def test_declared_but_unbuilt_modes_say_so(client: TestClient):
@@ -639,3 +652,63 @@ def test_the_rotation_says_how_long_it_is_good_for(client: TestClient):
 
     assert control.startswith("public, max-age=")
     assert int(control.rsplit("=", 1)[1]) > 0
+
+
+def test_a_span_can_be_given_a_name(client: TestClient):
+    """The name rides in the link like everything else, and changes the drawing."""
+    plain = client.get(f"/w/span.png?{SPAN}")
+    named = client.get(f"/w/span.png?{SPAN}&ti=Sabbatical")
+
+    assert named.status_code == 200
+    assert named.headers["etag"] != plain.headers["etag"]
+
+
+def test_a_name_is_one_line_of_reasonable_length(client: TestClient):
+    """Whitespace is collapsed — a title is a line, not a layout — and a name
+    past the cap is refused rather than quietly cut."""
+    tidy = client.get(f"/w/span.png?{SPAN}&ti=Two%20%20%20words")
+    spaced = client.get(f"/w/span.png?{SPAN}&ti=Two+words")
+
+    assert tidy.headers["etag"] == spaced.headers["etag"]
+    assert client.get(f"/w/span.png?{SPAN}&ti={'x' * 61}").status_code == 422
+
+
+def test_a_name_can_be_set_at_three_sizes(client: TestClient):
+    drawings = {
+        client.get(f"/w/span.png?{SPAN}&ti=Sabbatical&ts={size}").headers["etag"]
+        for size in ("s", "m", "l")
+    }
+
+    assert len(drawings) == 3
+
+
+def test_an_unknown_name_size_is_a_400(client: TestClient):
+    answer = client.get(f"/w/span.png?{SPAN}&ti=Sabbatical&ts=huge")
+
+    assert answer.status_code == 400
+    assert "name size" in answer.json()["detail"]
+
+
+def test_the_builder_offers_the_name(client: TestClient):
+    page = client.get("/").text
+    assert 'id="ti"' in page
+    assert 'data-key="ts"' in page
+
+
+def test_a_bare_link_draws_the_settings_the_page_opens_on(client: TestClient):
+    """The builder starts on the API's own defaults, so the first link anyone
+    copies carries nothing but the dates. Naming a default must change nothing.
+    """
+    bare = client.get(f"/w/span.png?{SPAN}")
+    spelt = client.get(f"/w/span.png?{SPAN}&s=r&lb=split&mk=0&ft=week&q=1")
+
+    assert bare.headers["etag"] == spelt.headers["etag"]
+
+
+@pytest.mark.parametrize("query", ["s=c", "lb=left", "mk=1", "ft=pct", "q=0"])
+def test_each_default_can_still_be_turned_around(client: TestClient, query: str):
+    bare = client.get(f"/w/span.png?{SPAN}")
+    other = client.get(f"/w/span.png?{SPAN}&{query}")
+
+    assert other.status_code == 200
+    assert other.headers["etag"] != bare.headers["etag"]

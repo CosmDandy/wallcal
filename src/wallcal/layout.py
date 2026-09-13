@@ -29,6 +29,9 @@ from .strings import MONTHS
 # would start underneath the digits.
 CLOCK_TOP = {"std": 0.30, "big": 0.38}
 SAFE_TOP = CLOCK_TOP["std"]
+# How far up the nudge may pull the grid, past the clock's reserve: far enough
+# to clear the status bar's own strip and no further.
+TOP_LIMIT = 0.08
 SIDE_MARGIN = 0.035  # fraction of width
 
 # The two round buttons sit side by side near the bottom with a wide empty lane
@@ -50,8 +53,11 @@ QUOTE_CLEARANCE = 0.008  # gap kept between the quote and the top of the buttons
 # The two pitches diverge asymmetrically. Widening columns rescues a long span
 # that would otherwise be a thin ribbon, so it gets room; stretching rows only
 # ever thins the field out, so it gets almost none.
-WIDEN_CAP = 1.5  # pitch_x may exceed pitch_y by this much
-STRETCH_CAP = 1.15  # pitch_y may exceed pitch_x by this much
+# Loosened once the caps were measured against real spans rather than against
+# the worst case: a year at two weeks a row was using 79% of the width and a
+# quarter 38% of the height, both leaving the picture stranded in the middle.
+WIDEN_CAP = 1.9  # pitch_x may exceed pitch_y by this much
+STRETCH_CAP = 1.45  # pitch_y may exceed pitch_x by this much
 
 # A row of several weeks reads as one run of days without a break between them.
 GROUP_GAP_RATIO = 0.5  # gap between weeks in a row, as a fraction of pitch_x
@@ -67,6 +73,11 @@ AXIS_MAX = 0.011  # ...but never more than this fraction of screen height
 FOOTER_SIZE = 0.017  # footer type size as a fraction of screen height
 QUOTE_BAND = 0.075  # fraction of height given to the quote, under the grid
 QUOTE_SIZE = 0.0165  # quote type size as a fraction of screen height
+# A name for the span, set above the grid. Bigger than the footer — it is a
+# title, not a caption — and it takes its room from the clock's reserve rather
+# than from the dots: the band under a lock screen clock stands empty anyway.
+TITLE_SIZES = {"s": 0.017, "m": 0.022, "l": 0.030}
+TITLE_SIZE = TITLE_SIZES["m"]
 # The sun and moon band is the quote's slot with something else in it, so it
 # needs no reserve of its own — only a size. A hair under the quote's: the line
 # is digits, and digits at the quote's size read as a readout.
@@ -130,6 +141,17 @@ def parse_clock(spec: str) -> str:
     return key
 
 
+class TitleSizeError(ValueError):
+    """Raised for an unknown title size."""
+
+
+def parse_title_size(spec: str) -> str:
+    key = spec.strip().lower()
+    if key not in TITLE_SIZES:
+        raise TitleSizeError(f"unknown name size {spec!r}; use one of: {', '.join(TITLE_SIZES)}")
+    return key
+
+
 class LabelError(ValueError):
     """Raised for an unknown label placement."""
 
@@ -169,6 +191,8 @@ class Layout:
     bar_center_y: int
     quote_center_y: int  # 0 when no band was reserved
     quote_font: int
+    title_center_y: int  # 0 when no title was asked for
+    title_font: int
     axis_font: int
     footer_font: int
 
@@ -221,10 +245,16 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
     footer: bool = True,
     clock: str = "std",
     shift: int = 0,
+    title: bool = False,  # a name set above the grid, in the clock's own reserve
+    title_size: str = "m",
 ) -> Layout:
     margin_x = round(SIDE_MARGIN * width)
     avail_w = width - 2 * margin_x
     avail_y0 = round(CLOCK_TOP[clock] * height)
+    # The title goes in the reserve itself, just above the grid — the strip the
+    # clock is given and does not use all of. Set inside the band instead, it
+    # would have cost the field three pixels of pitch on a year of days.
+    title_font = max(11, round(TITLE_SIZES[title_size] * height))
     # The quote hangs below the grid's own floor, stopping just short of the
     # buttons — that empty strip is the lowest a wallpaper may draw.
     footer_font = max(11, round(FOOTER_SIZE * height))
@@ -280,16 +310,19 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
     axis_font = max(8, min(round(tight * AXIS_RATIO), axis_font))
 
     block_h = header_h + rows * pitch_y
-    # Centred under a standard clock. Under a big one the whole block drops to
-    # the bottom of what is left: shrinking the band from above only moves a
-    # centred block by half the reserve, which is too little to see.
-    # The clock preset only lowers the ceiling; the block stays centred in what
-    # is left. Dropping it to the floor as well made a short grid land almost on
-    # the buttons, and made the two knobs fight each other.
+    # Hung from the clock, not centred in the band. A row of several weeks is a
+    # landscape block on a portrait screen: the pitches cannot both fill, and a
+    # centred block spent the leftover height as a gap under the clock, which
+    # read as a small picture floating in the middle of the wallpaper. Hung, the
+    # leftover goes under the grid instead, where the quote already lives and
+    # follows it down.
     slack = band_h - block_h
-    # Hand tuning on top of that, clamped to the band: no amount of nudging may
-    # slide the grid under the clock or past what sits below it.
-    offset = max(0, min(slack, slack // 2 + round(shift / 100 * height)))
+    # Hand tuning on top of that. It reaches above the clock's reserve as well as
+    # below: the reserve is one guess at how much room a lock screen clock wants,
+    # and iOS lets that clock be any of several sizes. Upwards it stops at the
+    # status bar, downwards at whatever sits under the grid.
+    ceiling = round(TOP_LIMIT * height) - avail_y0
+    offset = max(ceiling, min(slack, round(shift / 100 * height)))
 
     grid_x = (width - (columns * pitch_x + (groups - 1) * group_gap)) // 2
     grid_right = grid_x + columns * pitch_x + (groups - 1) * group_gap - 1
@@ -306,7 +339,10 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
         week_label_x = grid_x - label_gap
         week_label_anchor = "rm"
         month_center_x = grid_x - label_gap - week_w - label_gap - month_band // 2
-    grid_y = avail_y0 + max(0, offset) + header_h
+    grid_y = avail_y0 + offset + header_h
+    # Above the block, not above the reserve: the nudge moves the grid, and a
+    # name that stayed behind would end up written across the first rows.
+    title_center_y = avail_y0 + offset - round(title_font * 0.95) if title else 0
     # Centred in whatever gap is left between the grid and the buttons, so it
     # follows the grid when the clock preset or the manual nudge moves it.
     quote_center_y = (grid_y + rows * pitch_y + quote_bottom) // 2 if quote else 0
@@ -332,6 +368,8 @@ def compute(  # noqa: PLR0913 - geometry needs all of it
         bar_center_y=round(BAR_ROW * height),
         quote_center_y=quote_center_y,
         quote_font=max(10, round(QUOTE_SIZE * height)),
+        title_center_y=title_center_y,
+        title_font=title_font,
         footer_max_width=width - 2 * round(CONTROLS_CLEAR * width),
         axis_font=axis_font,
         footer_font=footer_font,

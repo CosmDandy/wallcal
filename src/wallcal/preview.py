@@ -1,23 +1,28 @@
 """Lock screen mock-up drawn over a finished wallpaper.
 
-For judging composition in a browser, not for a phone: it puts the clock, the
-date and the two round buttons roughly where iOS puts them, so you can see what
+For judging composition in a browser, not for a phone: it puts the two round
+buttons and the home indicator roughly where iOS puts them, so you can see what
 the grid has to live between. Proportions are eyeballed from an iPhone lock
 screen and are deliberately approximate — never ship this image as a wallpaper.
+
+The clock and the date are not here. They belong to the minute you are looking
+at, and this image is cached until midnight: a clock baked into it is wrong the
+moment it is stored. The builder writes those two lines over the picture in the
+page instead, off the reader's own clock — see `.mock-clock` in index.html. The
+sizes and heights they use are the constants below, which is why they stay.
 """
 
 from __future__ import annotations
 
-from datetime import date
-
 from PIL import Image, ImageDraw
 
 from . import layout
-from .fonts import FONT_LIGHT, FONT_REGULAR, load_font
 from .palette import RGB, mix
 from .render import Style
-from .strings import long_date
 
+# Where the page writes the clock and the date. Kept here, next to the rest of
+# the furniture, because they are part of the same eyeballed lock screen — the
+# builder reads them from this file's own comments, not from a second guess.
 DATE_Y = 0.093
 DATE_SIZE = 0.017
 # Two clock sizes, matching the reserve the layout keeps for each.
@@ -34,11 +39,11 @@ INDICATOR_Y = 0.972
 INDICATOR_W = 0.35
 INDICATOR_H = 0.0022
 
-CHROME_ALPHA = 0.72  # clock and date
+# What the page mixes its clock and date at, so the two lines it writes sit in
+# the same tone as the furniture drawn here.
+CHROME_ALPHA = 0.72
 BUTTON_FILL_ALPHA = 0.08
 BUTTON_INK_ALPHA = 0.55
-
-CLOCK_TEXT = "9:41"  # the time Apple puts on every iPhone it photographs
 
 
 def _circle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill: RGB) -> None:
@@ -70,7 +75,7 @@ def _camera(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, ink: RGB,
     draw.ellipse((cx - lens, cy - lens, cx + lens, cy + lens), fill=hole)
 
 
-def overlay(image: Image.Image, style: Style, today: date) -> None:
+def overlay(image: Image.Image, style: Style) -> None:
     """Draw the lock screen furniture onto `image`, in place.
 
     In place rather than onto a copy: at phone resolution a copy is another
@@ -80,22 +85,6 @@ def overlay(image: Image.Image, style: Style, today: date) -> None:
     mock = image
     draw = ImageDraw.Draw(mock)
     width, height = mock.size
-
-    chrome = mix(style.strong, style.background, CHROME_ALPHA)
-    draw.text(
-        (width / 2, DATE_Y * height),
-        long_date(style.language, today),
-        font=load_font(FONT_REGULAR, round(DATE_SIZE * height)),
-        fill=chrome,
-        anchor="mm",
-    )
-    draw.text(
-        (width / 2, CLOCK_Y[style.clock] * height),
-        CLOCK_TEXT,
-        font=load_font(FONT_LIGHT, round(CLOCK_SIZE[style.clock] * height)),
-        fill=chrome,
-        anchor="mm",
-    )
 
     radius = BUTTON_R * width
     fill = mix(style.strong, style.background, BUTTON_FILL_ALPHA)
