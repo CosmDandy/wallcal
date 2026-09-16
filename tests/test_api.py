@@ -689,6 +689,22 @@ def test_an_unknown_name_size_is_a_400(client: TestClient):
     assert "name size" in answer.json()["detail"]
 
 
+def test_the_builder_offers_a_colour_of_your_own(client: TestClient):
+    """Every colour the API takes as hex has to be reachable without typing one."""
+    page = client.get("/").text
+
+    assert 'class="pick"' in page or "colourWheel" in page
+    assert 'type = "color"' in page or 'type="color"' in page
+
+
+def test_a_colour_dialled_by_hand_is_drawn_not_refused(client: TestClient):
+    """What the wheel puts in the link: bare hex, no hash to encode."""
+    for spot in ("a=3fa7d6", "mc=8a4fff", "ti=Sabbatical&tc=3fa7d6"):
+        answer = client.get(f"/w/span.png?{SPAN}&{spot}")
+        assert answer.status_code == 200, spot
+        assert answer.headers["content-type"] == "image/png"
+
+
 def test_the_builder_offers_the_name(client: TestClient):
     page = client.get("/").text
     assert 'id="ti"' in page

@@ -326,6 +326,30 @@
   .swatches button.auto {
     background:linear-gradient(135deg, var(--ink-dim) 0 50%, var(--page) 50% 100%);
   }
+  /* Ten named tones cover most of what anyone wants and none of what someone
+     wants exactly. The last thing in every colour row opens the system picker.
+     A rectangle, not another circle: eleven circles in a row read as eleven
+     colours, and the eleventh looked like one more tone you happened to dislike
+     rather than the way to the one you wanted. Shaped and bordered like the
+     other controls on the page instead, it reads as what it does.
+     No inset ring either — over a spectrum that dark hairline went muddy, which
+     is the whole of what looked wrong about it. */
+  .pick {
+    position:relative; width:36px; height:26px; margin-left:4px; flex-shrink:0;
+    /* Its own corner, not --r-sm: at 26px tall the page's usual 10px turns a
+       small rectangle back into a lozenge, and the shape is the point. */
+    border:1px solid var(--edge); border-radius:5px;
+    cursor:pointer; overflow:hidden;
+    background:linear-gradient(90deg, #dc322f, #cb4b16, #b58900, #859900,
+                               #2aa198, #268bd2, #6c71c4, #d33682);
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1), border-color .25s;
+  }
+  .pick:hover { border-color:var(--edge-hot); transform:translateY(-1px); }
+  .pick:active { transform:scale(.94); }
+  .pick[data-chosen] { background:var(--picked); border-color:var(--ink); }
+  /* The input itself is only the click target and the native dialog: every
+     browser draws its own swatch inside, and none of them draw it like this. */
+  .pick input { position:absolute; inset:-4px; opacity:0; cursor:pointer; border:none; padding:0; }
 
   input[type=text] {
     font:inherit; color:var(--ink); background:var(--field);
@@ -1279,7 +1303,7 @@ const RU = {
   "Quote of the day": "Цитата дня", "Sun and moon": "Солнце и луна",
   "Day length": "Долгота дня", "Your own line": "Своя строка",
   "Name": "Название", "Name size": "Размер названия",
-  "Name colour": "Цвет названия", "Auto": "Авто",
+  "Name colour": "Цвет названия", "Auto": "Авто", "Any colour": "Любой цвет",
   "Small": "Мелко", "Medium": "Средне", "Large": "Крупно",
   "a name for the span, over the grid": "название периода, над сеткой",
   "Attributed to": "Автор", "Location": "Место",
@@ -1972,6 +1996,7 @@ function buildSegments() {
       button.addEventListener("click", () => { state[key] = name; render(); });
       host.append(button);
     }
+    host.append(colourWheel((hex) => { state[key] = hex; render(); }));
   }
 }
 
@@ -2171,6 +2196,7 @@ function paintSelection() {
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
   document.querySelectorAll("[data-key]").forEach((host) => {
     const key = host.dataset.key;
+    if (host.classList.contains("swatches")) paintWheel(host, state[key]);
     host.querySelectorAll("button").forEach((button) => {
       if (button.classList.contains("switch")) {
         const on = state[key] === button.dataset.on;
@@ -2609,6 +2635,33 @@ function hueHex(name) {
   return known ? known[1] : `#${name.replace("#", "")}`;
 }
 
+// A colour of your own, at the end of a row of named ones. The value is kept
+// without its hash: a link carrying `a=%233fa7d6` is the same colour spelled
+// three characters longer and unreadable in the bargain.
+function colourWheel(onPick) {
+  const wheel = document.createElement("label");
+  wheel.className = "pick";
+  wheel.title = "Any colour";
+  const input = document.createElement("input");
+  input.type = "color";
+  // `input` rather than `change`: the picture follows the dialog while it is
+  // open, which is the whole point of turning a wheel.
+  input.addEventListener("input", () => onPick(input.value.slice(1)));
+  wheel.append(input);
+  return wheel;
+}
+
+// Named tones stay named in the link; anything else is the hex it is.
+function paintWheel(host, chosen) {
+  const wheel = host.querySelector(".pick");
+  if (!wheel) return;
+  const named = chosen === "auto" || HUES.some(([hue]) => hue === chosen);
+  const hex = chosen === "auto" ? HUES[0][1] : hueHex(chosen);
+  wheel.toggleAttribute("data-chosen", !named);
+  wheel.style.setProperty("--picked", hex);
+  wheel.querySelector("input").value = hex;
+}
+
 function chips(attribute, entries) {
   return entries.map(([value, label]) =>
     `<button type="button" data-${attribute}="${value}"
@@ -2661,6 +2714,11 @@ function markerRow(marker) {
       <span data-en="Pull back off days nobody works">${
         t("Pull back off days nobody works")}</span>
     </label>`;
+
+  row.querySelector(".swatches").append(colourWheel((hex) => {
+    marker.color = hex;
+    render();
+  }));
 
   row.querySelectorAll("input[type=date]").forEach((field) => {
     field.addEventListener("change", () => {
@@ -2731,6 +2789,7 @@ function paintMarkers() {
     on("[data-weekday]", "weekday", (day) => marker.days.includes(Number(day)));
     on("[data-monthday]", "monthday", (day) => marker.monthdays.includes(Number(day)));
     on(".swatches button", "value", (hue) => hue === marker.color);
+    paintWheel(row.querySelector(".swatches"), marker.color);
     row.querySelectorAll("[data-rule]").forEach((control) => {
       control.hidden = control.dataset.rule !== marker.kind;
     });
