@@ -39,6 +39,14 @@ FADE_STEPS = 40  # quantised so the sprite tiles stay cacheable
 # Below 1 the curve is steep far from today and shallow near it: recent days sit
 # close together and the fall-off happens gradually, out in the old part.
 FADE_CURVE = 0.7
+# A fade needs room to fall. Two days into a span the oldest day drawn is the
+# day before yesterday, and putting it on the faint end says "long ago" about
+# something that happened on Monday — which is how a week just started came out
+# as one grey dot beside one almost-white one. So the fade only reaches its full
+# depth once there is a fortnight of past to spread it across; before that it
+# stays up near the strong end and the field reads as what it is, a short run of
+# days just gone. Past that nothing changes: the drawing is the one it was.
+FADE_REACH = 15  # days elapsed at which the fade uses the whole ramp
 QUOTE_MAX_LINES = 3
 QUOTE_ALPHA = 0.62  # against the footer tone: present, still quieter than the dots
 
@@ -353,15 +361,19 @@ def render_span(
 
 
 def _fade_step(day: date, grid: Grid) -> int:
-    """0 at the start of the span, FADE_STEPS on the day before today.
+    """FADE_STEPS on the day before today, falling towards 0 at the span's start.
 
     Anchored to the span rather than to a fixed number of days: a two-week span
-    and a two-year one should both fade across their whole filled part.
+    and a two-year one should both fade across their whole filled part. How far
+    down it falls is a second question — see FADE_REACH — because a span that
+    started on Monday has no "long ago" in it to draw.
     """
     elapsed = (grid.today - grid.start).days
     if elapsed <= 0:
         return FADE_STEPS
-    return round(FADE_STEPS * (day - grid.start).days / elapsed)
+    position = (day - grid.start).days / elapsed
+    reach = min(1.0, elapsed / FADE_REACH)
+    return round(FADE_STEPS * (1 - reach * (1 - position)))
 
 
 def _draw_backdrops(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Style) -> None:
