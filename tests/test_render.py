@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import math
-from datetime import date
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -17,6 +17,7 @@ from wallcal.fonts import FONT_REGULAR, load_font
 from wallcal.grid import CellState, build_span
 from wallcal.palette import lerp, luminance
 from wallcal.render import (
+    FADE_REACH,
     MOON_RATIO,
     MOON_STEPS,
     SKY_GAP,
@@ -339,6 +340,60 @@ def test_fading_makes_older_past_days_fainter(device: Device):
     assert darkness(newest) > 0
 
 
+def _past_tones(device: Device, start: date, end: date) -> list[int]:
+    """How dark each past day is drawn, oldest first."""
+    grid = grid_of(start, end)
+    lay = L.compute(device.width, device.height, grid.rows, grid.columns, grid.columns // 7)
+    image = render_span(
+        grid, device.width, device.height, Style(weekends=False, marks=False, fade=True)
+    )
+    tones = []
+    for cell in grid.cells:
+        if cell.state is not CellState.PAST:
+            continue
+        cx, cy = lay.cell_center(cell.row, cell.col)
+        tones.append(255 - image.getpixel((round(cx), round(cy)))[0])
+    return tones
+
+
+def test_a_span_that_just_started_has_no_long_ago_in_it_to_draw(device: Device):
+    """Two days in, the older of them is the day before yesterday.
+
+    Drawing that one on the faint end said "long ago" about something that
+    happened on Monday, and a week just begun came out as a grey dot beside an
+    almost-white one. Both days belong up at the strong end, a hair apart.
+    """
+    tones = _past_tones(device, TODAY - timedelta(days=2), TODAY + timedelta(days=40))
+    deepest = _past_tones(device, TODAY - timedelta(days=90), TODAY + timedelta(days=40))
+
+    assert len(tones) == 2
+    assert tones[0] < tones[1], "the older day is still the fainter of the two"
+    # Within a tenth of the full drop, where a long span spends all of it.
+    assert (tones[1] - tones[0]) < 0.1 * (max(deepest) - min(deepest))
+
+
+def test_enough_past_spends_the_whole_ramp(device: Device):
+    """Past FADE_REACH nothing changes: the drawing is the one it always was."""
+    reached = _past_tones(device, TODAY - timedelta(days=FADE_REACH), TODAY + timedelta(days=40))
+    quarter = _past_tones(device, TODAY - timedelta(days=90), TODAY + timedelta(days=40))
+    short = _past_tones(device, TODAY - timedelta(days=3), TODAY + timedelta(days=40))
+
+    assert min(reached) == min(quarter), "a fortnight of past reaches the faint end"
+    assert min(short) > min(reached), "three days of it does not, and should not"
+
+
+def test_the_fade_deepens_as_the_past_grows(device: Device):
+    """No step backwards on the way: a span cannot fade less for having lasted."""
+    spreads = [
+        max(tones) - min(tones)
+        for days in (2, 4, 7, 11, 15)
+        for tones in [_past_tones(device, TODAY - timedelta(days=days), TODAY + timedelta(days=40))]
+    ]
+
+    assert spreads == sorted(spreads)
+    assert spreads[0] < spreads[-1]
+
+
 def test_fading_can_be_switched_off(device: Device):
     grid = grid_of(date(2026, 6, 1), date(2026, 12, 31))
     lay = L.compute(device.width, device.height, grid.rows, grid.columns, grid.columns // 7)
@@ -535,53 +590,54 @@ def test_counting_puts_a_number_over_the_end_of_each_week(device: Device):
 # because a hash is the only assertion that can say "exactly this drawing" about
 # a field of dots. It caught the band rewrite that turned two fixed columns into
 # a union of cells — forty of the forty-two came through byte-identical.
-# Re-based when the grid stopped being centred in its band and started hanging
-# from the clock, and the two aspect caps were loosened with it: every one of
-# these moved on purpose. What the table still guards is that nothing moves them
-# again by accident.
+# Re-based whenever the geometry or the palette moves on purpose — the grid
+# hanging from the clock rather than centred in its band, the fade no longer
+# spending its whole range on a span five days old. This fixture is a span five
+# days old, so those both moved every digest in it. What the table guards is
+# that nothing moves them when nothing was meant to.
 BAND_GOLDEN = {
-    (0, True, 1): "cbfb2d80043a32a4",
-    (0, True, 2): "7889b35e597cd213",
-    (0, True, 4): "7b138706afde852c",
-    (0, False, 1): "cbfb2d80043a32a4",
-    (0, False, 2): "76a17f97657008ed",
-    (0, False, 4): "6c0f8becd54e6b63",
-    (1, True, 1): "e9d7664812dbada5",
-    (1, True, 2): "85f0453541808d02",
-    (1, True, 4): "0f58d2c01c7b5cb1",
-    (1, False, 1): "e9d7664812dbada5",
-    (1, False, 2): "c19d61272abfd362",
-    (1, False, 4): "7f8e25004a392e84",
-    (2, True, 1): "2a2eb3f571c8f358",
-    (2, True, 2): "fb125b776b70a932",
-    (2, True, 4): "979662f9d6bbf7f6",
-    (2, False, 1): "2a2eb3f571c8f358",
-    (2, False, 2): "eb3de3c6b3f26f69",
-    (2, False, 4): "039da159aed8422e",
-    (3, True, 1): "ae56101e9f673066",
-    (3, True, 2): "71a17a87b86d3836",
-    (3, True, 4): "a8923b84d805717b",
-    (3, False, 1): "ae56101e9f673066",
-    (3, False, 2): "8611ddead08fd9cc",
-    (3, False, 4): "4d2c0ffb3aed8179",
-    (4, True, 1): "99785d0c2f7be1b7",
-    (4, True, 2): "d79bfabf987ee64b",
-    (4, True, 4): "efab1eca770c9752",
-    (4, False, 1): "99785d0c2f7be1b7",
-    (4, False, 2): "9ac88e3627c1f965",
-    (4, False, 4): "62a8d5542bfb041e",
-    (5, True, 1): "f5b553c256e3b412",
-    (5, True, 2): "4d5d93785504eae9",
-    (5, True, 4): "bbc50dc7b3c7d1ac",
-    (5, False, 1): "f5b553c256e3b412",
-    (5, False, 2): "6b19a35882890306",
-    (5, False, 4): "3e80649943684c91",
-    (6, True, 1): "df9135d8c3896234",
-    (6, True, 2): "19a7a2f3fc5e7944",
-    (6, True, 4): "646b2c79509680f6",
-    (6, False, 1): "df9135d8c3896234",
-    (6, False, 2): "88ab0afec3b7ab9b",
-    (6, False, 4): "888849d0cfac9e26",
+    (0, True, 1): "08194305a7691444",
+    (0, True, 2): "23b3028c91ca9561",
+    (0, True, 4): "2f6a773ada20555b",
+    (0, False, 1): "08194305a7691444",
+    (0, False, 2): "b39edcc1a6c94fe5",
+    (0, False, 4): "a22d1b0434c3c730",
+    (1, True, 1): "c8c82340a95195ea",
+    (1, True, 2): "a0b52ddd37f81f25",
+    (1, True, 4): "c6d14f440d628d66",
+    (1, False, 1): "c8c82340a95195ea",
+    (1, False, 2): "4a19bc95b9c9892b",
+    (1, False, 4): "d93d98e70cff656b",
+    (2, True, 1): "07e3c48b0629c3f4",
+    (2, True, 2): "fd12ca4ed518adba",
+    (2, True, 4): "caa12a6fc568fb93",
+    (2, False, 1): "07e3c48b0629c3f4",
+    (2, False, 2): "7dae336991aa09ce",
+    (2, False, 4): "ba54468a3085818b",
+    (3, True, 1): "82f6afb65cf876c8",
+    (3, True, 2): "ec1b8f3c0bf7c402",
+    (3, True, 4): "473e6526e2379fd1",
+    (3, False, 1): "82f6afb65cf876c8",
+    (3, False, 2): "285029551b9ab573",
+    (3, False, 4): "8181e2f803f77407",
+    (4, True, 1): "ee92cd3b30f66143",
+    (4, True, 2): "1280ef2bc6dace2e",
+    (4, True, 4): "50a35a67d82aa815",
+    (4, False, 1): "ee92cd3b30f66143",
+    (4, False, 2): "5beb8d6f9f244d09",
+    (4, False, 4): "921896c702640f55",
+    (5, True, 1): "41654e11a647f995",
+    (5, True, 2): "cb3c3594839de7cc",
+    (5, True, 4): "d64101131c6ededd",
+    (5, False, 1): "41654e11a647f995",
+    (5, False, 2): "b527328cd07a14ec",
+    (5, False, 4): "afcd3a81ed879412",
+    (6, True, 1): "c41510806458cc10",
+    (6, True, 2): "31260ba82c0216ae",
+    (6, True, 4): "3523c8d4e5b6c3d5",
+    (6, False, 1): "c41510806458cc10",
+    (6, False, 2): "08e0913fd2dec9cf",
+    (6, False, 4): "aa9c3f7fcdfba1cd",
 }
 
 
