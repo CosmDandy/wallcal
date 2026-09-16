@@ -314,9 +314,9 @@
   }
   .seg button.switch[aria-pressed="true"] { color:var(--switch-on-ink); }
 
-  .swatches { display:inline-flex; flex-wrap:wrap; gap:6px; }
+  .swatches { display:inline-flex; flex-wrap:wrap; gap:6px; --chip:26px; }
   .swatches button {
-    width:26px; height:26px; border-radius:50%; border:2px solid transparent;
+    width:var(--chip); height:var(--chip); border-radius:50%; border:2px solid transparent;
     padding:0; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1), border-color .25s;
   }
@@ -335,18 +335,23 @@
      No inset ring either — over a spectrum that dark hairline went muddy, which
      is the whole of what looked wrong about it. */
   .pick {
-    position:relative; width:36px; height:26px; margin-left:4px; flex-shrink:0;
-    /* Its own corner, not --r-sm: at 26px tall the page's usual 10px turns a
-       small rectangle back into a lozenge, and the shape is the point. */
-    border:1px solid var(--edge); border-radius:5px;
+    position:relative; align-self:center; flex-shrink:0;
+    /* The same box as the discs beside it — 26px, border-box, a 2px transparent
+       border — so it sits on their rhythm exactly. Wider, and squared off: that
+       is what says "the way to a colour" rather than "one more colour". */
+    width:calc(var(--chip) * 1.3); height:var(--chip); margin-left:4px;
+    border:2px solid transparent; border-radius:4px;
     cursor:pointer; overflow:hidden;
-    background:linear-gradient(90deg, #dc322f, #cb4b16, #b58900, #859900,
-                               #2aa198, #268bd2, #6c71c4, #d33682);
-    transition:transform .25s cubic-bezier(.34,1.56,.64,1), border-color .25s;
+    /* No ring of any kind. One over a spectrum went muddy, and one that changed
+       when a colour was picked drew the eye to the frame instead of the colour —
+       which this control shows in the only way that matters, by wearing it. */
+    background:conic-gradient(from 45deg,
+      #dc322f 0 25%, #b58900 0 50%, #859900 0 75%, #268bd2 0);
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1);
   }
-  .pick:hover { border-color:var(--edge-hot); transform:translateY(-1px); }
-  .pick:active { transform:scale(.94); }
-  .pick[data-chosen] { background:var(--picked); border-color:var(--ink); }
+  .pick:hover { transform:translateY(-1px) scale(1.06); }
+  .pick:active { transform:scale(.92); }
+  .pick[data-chosen] { background:var(--picked); }
   /* The input itself is only the click target and the native dialog: every
      browser draws its own swatch inside, and none of them draw it like this. */
   .pick input { position:absolute; inset:-4px; opacity:0; cursor:pointer; border:none; padding:0; }
@@ -448,6 +453,17 @@
      under them for the footer. The whole phone when the panel is about the
      whole phone. */
   .shot { display:block; width:100%; height:100%; object-fit:cover; }
+  /* A transparent wallpaper is nothing to look at over the shell's own black.
+     Behind it goes a stand-in for the photograph the Shortcut will put there —
+     not a real one, because the page ships as a single file, but enough colour
+     and enough contrast to judge whether the dots still read. */
+  .screen.see-through {
+    background:
+      radial-gradient(60% 45% at 25% 18%, #e8b04b 0%, transparent 60%),
+      radial-gradient(70% 50% at 82% 30%, #2f7fae 0%, transparent 62%),
+      radial-gradient(90% 60% at 40% 88%, #2f5d3a 0%, transparent 65%),
+      linear-gradient(170deg, #4a4f63 0%, #23262f 55%, #15161c 100%);
+  }
   /* The island is hardware, so it belongs to the shell. The buttons and the home
      indicator are not: pv=1 draws those into the wallpaper itself. */
   .island {
@@ -756,7 +772,9 @@
   /* [hidden] is a UA rule; .seg sets display, and the more specific one wins. */
   .marker [hidden] { display:none; }
   .marker .seg button { padding:5px 9px; font-size:12px; }
-  .marker .swatches button { width:22px; height:22px; }
+  /* Tighter inside a marker row, and the wheel at the end of it follows: it is
+     sized off --chip, not off a number of its own. */
+  .marker .swatches { --chip:22px; }
   .marker-date { min-width:0; font-size:12px; padding:6px 10px; }
   /* Full width: it is the panel's one invitation, and a marker is added far
      more often than anything else here is pressed. The cap note sits under it
@@ -1111,8 +1129,30 @@
 
     <fieldset class="panel wide">
       <legend>Theme</legend>
-      <div class="row"><label>Background</label><span class="seg" data-key="th"></span></div>
+      <div class="row"><label>Background</label>
+        <span class="inline">
+          <span class="seg" data-key="th"></span>
+          <span class="swatches" data-key="bg"></span>
+        </span>
+      </div>
       <div class="row"><label>Dots</label><span class="seg" data-key="ink"></span></div>
+      <div class="row">
+        <label for="vl">Veil</label>
+        <span class="inline">
+          <input type="range" id="vl" min="0" max="100" step="5" value="100">
+          <output id="vl-value">100%</output>
+          <button type="button" class="action small" id="vl-reset">Reset</button>
+        </span>
+      </div>
+      <div class="row" id="veil-mode-row"><label>Veil behind</label><span class="seg" data-key="vm"></span></div>
+      <p class="hint" id="veil-hint">Below 100 the picture comes back
+        translucent and your own photograph shows through it. A phone cannot see
+        through a wallpaper, so the Shortcut lays this over a picture from Photos
+        before it sets it — the help sheet has the whole recipe. The background
+        above is what the veil is made of, so pick a dark one for a dark
+        photograph and a light one for a light one. <b>Blocks</b> puts it under
+        the calendar, the line and the bar only, in panels the shape of an iOS
+        widget, and leaves the rest of your photograph alone.</p>
     </fieldset>
 
     <fieldset class="panel">
@@ -1263,14 +1303,45 @@
   <div class="help-body" id="help-body">
     <p>Wallcal draws the calendar as a picture. The address always renders
        <b>today</b>, so a wallpaper set once is never out of date.</p>
-    <p><b>On an iPhone, once:</b></p>
-    <ol>
-      <li>Shortcuts → Automation → New → <b>Time of Day</b>. Pick an hour, daily, and
-          <b>Run Immediately</b> with “Notify When Run” off.</li>
-      <li>Add the action <b>Get Contents of URL</b> and paste what <b>Copy</b> gave you.</li>
-      <li>Add <b>Set Wallpaper Photo</b>, aim it at the <b>Lock Screen</b>, and turn
-          “Show Preview” off.</li>
-    </ol>
+    <div id="help-plain">
+      <p><b>On an iPhone, once:</b></p>
+      <ol>
+        <li>Shortcuts → Automation → New → <b>Time of Day</b>. Pick an hour, daily, and
+            <b>Run Immediately</b> with “Notify When Run” off.</li>
+        <li>Add the action <b>Get Contents of URL</b> and paste what <b>Copy</b> gave you.</li>
+        <li>Add <b>Set Wallpaper Photo</b>, aim it at the <b>Lock Screen</b>, and turn
+            “Show Preview” off.</li>
+      </ol>
+    </div>
+    <div id="help-sheer">
+      <p><b>With the veil below 100,</b> the picture comes back translucent and
+         the recipe is longer. A phone cannot see through a wallpaper — it
+         flattens whatever it is given onto black — so your photograph has to go
+         underneath before the wallpaper is set, and that is the Shortcut’s job.</p>
+      <p><b>First, somewhere the Shortcut can find the photograph.</b> Either
+         save it to Files as <b>Shortcuts/base.jpg</b>, or make an album in Photos
+         and put it there. Not <b>Select Photos</b>, which stops and asks, and not
+         <b>Get Latest Photos</b>, which will one day catch a screenshot.</p>
+      <p><b>Then, once:</b></p>
+      <ol>
+        <li>Shortcuts → Automation → New → <b>Time of Day</b>. Pick an hour, daily, and
+            <b>Run Immediately</b> with “Notify When Run” off.</li>
+        <li><b>Get Contents of URL</b> — paste what <b>Copy</b> gave you. This is the
+            calendar, veil and all.</li>
+        <li><b>Get File</b> at <b>Shortcuts/base.jpg</b> with “Show Document Picker”
+            off — or <b>Find Photos</b>, Album is your album, Limit 1.</li>
+        <li><b>Resize Image</b> on that photograph: width <span class="help-w"></span>,
+            height Auto.</li>
+        <li><b>Crop Image</b>, Custom, <span class="help-wh"></span>, position Center.</li>
+        <li><b>Overlay Image</b>. The input is the cropped photograph; the
+            <b>Image</b> it overlays is what the URL returned. Show More → position
+            Center, the same <span class="help-wh"></span>, opacity 100%.</li>
+        <li><b>Set Wallpaper Photo</b> — <b>Lock Screen</b>, “Show Preview” off.</li>
+      </ol>
+      <p>Steps 4 and 5 are the ones people skip. Overlay scales whichever picture
+         is smaller to fit the other, so a photograph straight from the camera
+         stretches the calendar and the dots come off their pitch.</p>
+    </div>
     <p>You do not have to wait for that hour to come round: press <b>▶</b> on the
        automation and it runs straight away.</p>
   </div>
@@ -1304,6 +1375,10 @@ const RU = {
   "Day length": "Долгота дня", "Your own line": "Своя строка",
   "Name": "Название", "Name size": "Размер названия",
   "Name colour": "Цвет названия", "Auto": "Авто", "Any colour": "Любой цвет",
+  "Veil": "Вуаль", "Veil behind": "Вуаль под",
+  "All of it": "Всем", "Blocks": "Блоками",
+  "Below 100 the picture comes back translucent and your own photograph shows through it. A phone cannot see through a wallpaper, so the Shortcut lays this over a picture from Photos before it sets it — the help sheet has the whole recipe. The background above is what the veil is made of, so pick a dark one for a dark photograph and a light one for a light one. Blocks puts it under the calendar, the line and the bar only, in panels the shape of an iOS widget, and leaves the rest of your photograph alone.":
+    "Меньше 100 — картинка возвращается полупрозрачной, и сквозь неё видна ваша фотография. Телефон не умеет смотреть сквозь обои, поэтому ярлык накладывает её на снимок из «Фото» перед установкой — весь рецепт в справке. Вуаль сделана из «Фона» выше: под тёмный снимок выбирайте тёмный, под светлый — светлый. «Блоками» кладёт её только под календарь, строку и полосу — панелями в форме виджета iOS, — а остальную фотографию оставляет как есть.",
   "Small": "Мелко", "Medium": "Средне", "Large": "Крупно",
   "a name for the span, over the grid": "название периода, над сеткой",
   "Attributed to": "Автор", "Location": "Место",
@@ -1403,6 +1478,8 @@ const OPTIONS = {
         // The iPhone 16 finishes, in their published sRGB values.
         ["teal","Teal"],["ultramarine","Ultramarine"],["pink","Pink"],["onyx","Onyx"],
         ["sand","Desert"],["natural","Natural"]] },
+  vl: { def:"100",  items:[] },  // a slider too
+  vm: { def:"full", items:[["full","All of it"],["cards","Blocks"]] },
   q:  { def:"1",    items:[["1","On"],["0","Off"]] },
   ft: { def:"week",  items:[["pct","6 / 122 · 4.9%"],["left","116 days left"],["week","Week 3 of 13"],["none","None"]] },
   br: { def:"1",    items:[["1","Span"],["year","Year"],["quarter","Quarter"],["month","Month"],["0","Off"]] },
@@ -1416,6 +1493,10 @@ const SWATCHES = {
   // A name has no colour of its own until asked: "auto" is the tone the footer
   // is set in, which is what a title looked like before this knob existed.
   tc: { def:"auto", auto:true },
+  // The background has eleven presets of its own next to it, so this row is the
+  // wheel and nothing else. Empty means "whatever the preset says"; anything
+  // else overrides it, which is what `bg` has always done on the server.
+  bg: { def:"", wheelOnly:true },
 };
 const HUES = [
   ["orange","#cb4b16"], ["red","#dc322f"], ["magenta","#d33682"], ["violet","#6c71c4"],
@@ -1509,6 +1590,8 @@ const quoteText = document.getElementById("qt");
 const quoteAuthor = document.getElementById("qa");
 const quoteHint = document.getElementById("quote-preview");
 const nudge = document.getElementById("sh");
+const veil = document.getElementById("vl");
+const veilValue = document.getElementById("vl-value");
 const nudgeValue = document.getElementById("sh-value");
 let rotation = { today: null, quotes: [] };
 // Asked for the first time something needs it — the quote hint or Shuffle —
@@ -1593,6 +1676,7 @@ function mockInk() {
   } catch {
     return;   // a browser that will not let us read it keeps the fallback tone
   }
+  shownBackground = "#" + background.map((v) => v.toString(16).padStart(2, "0")).join("");
   const strong = RAMP_STRONG[state.ink === "cream" ? "cream" : "bright"][
     relativeLuminance(background) < DARK_THRESHOLD ? "dark" : "light"];
   const chrome = strong.map((tone, index) =>
@@ -1971,6 +2055,9 @@ function buildSegments() {
     button.addEventListener("click", () => {
         state[key] = value;
         if (key === "q" && value === "1") { quoteText.value = ""; quoteAuthor.value = ""; }
+        // A preset and a colour of your own are the same knob asked twice, and
+        // the server lets bg win. Picking a preset has to mean it.
+        if (key === "th") state.bg = "";
         render();
       });
       host.append(button);
@@ -1987,14 +2074,16 @@ function buildSegments() {
       button.addEventListener("click", () => { state[key] = "auto"; render(); });
       host.append(button);
     }
-    for (const [name, hex] of HUES) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.style.background = hex;
-      button.title = name;
-      button.dataset.value = name;
-      button.addEventListener("click", () => { state[key] = name; render(); });
-      host.append(button);
+    if (!spec.wheelOnly) {
+      for (const [name, hex] of HUES) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.style.background = hex;
+        button.title = name;
+        button.dataset.value = name;
+        button.addEventListener("click", () => { state[key] = name; render(); });
+        host.append(button);
+      }
     }
     host.append(colourWheel((hex) => { state[key] = hex; render(); }));
   }
@@ -2021,15 +2110,49 @@ const HTML_TEXT = {
     null,   // the page is written in English; this is the Russian of it
     `<p>Wallcal рисует календарь картинкой. Ссылка всегда отдаёт
         <b>сегодняшний</b> день, поэтому однажды поставленные обои не устаревают.</p>
-     <p><b>На айфоне, один раз:</b></p>
-     <ol>
-       <li>Команды → Автоматизация → Новая → <b>Время дня</b>. Выберите час,
-           ежедневно, <b>запускать сразу</b> и выключите «Уведомлять».</li>
-       <li>Добавьте действие <b>Получить содержимое URL</b> и вставьте то, что дала
-           кнопка <b>Копировать</b>.</li>
-       <li>Добавьте <b>Установить фото обоев</b>, наведите на <b>экран блокировки</b>
-           и выключите «Показать предпросмотр».</li>
-     </ol>
+     <div id="help-plain">
+       <p><b>На айфоне, один раз:</b></p>
+       <ol>
+         <li>Команды → Автоматизация → Новая → <b>Время дня</b>. Выберите час,
+             ежедневно, <b>запускать сразу</b> и выключите «Уведомлять».</li>
+         <li>Добавьте действие <b>Получить содержимое URL</b> и вставьте то, что дала
+             кнопка <b>Копировать</b>.</li>
+         <li>Добавьте <b>Установить фото обоев</b>, наведите на <b>экран блокировки</b>
+             и выключите «Показать предпросмотр».</li>
+       </ol>
+     </div>
+     <div id="help-sheer">
+       <p><b>Если вуаль меньше 100,</b> картинка возвращается полупрозрачной и
+          рецепт становится длиннее. Телефон не умеет смотреть сквозь обои — он
+          сплющивает то, что ему дали, на чёрное, — поэтому фотографию нужно
+          подложить заранее, и это работа ярлыка.</p>
+       <p><b>Сначала — место, где ярлык найдёт фотографию сам.</b> Либо сохраните
+          её в «Файлы» как <b>Shortcuts/base.jpg</b>, либо заведите альбом в «Фото»
+          и положите её туда. Не <b>Выбрать фото</b> — оно останавливается и
+          спрашивает, — и не <b>Последние фото</b>: однажды это окажется скриншот.</p>
+       <p><b>Дальше, один раз:</b></p>
+       <ol>
+         <li>Команды → Автоматизация → Новая → <b>Время дня</b>. Выберите час,
+             ежедневно, <b>запускать сразу</b> и выключите «Уведомлять».</li>
+         <li><b>Получить содержимое URL</b> — вставьте то, что дала кнопка
+             <b>Копировать</b>. Это календарь вместе с вуалью.</li>
+         <li><b>Получить файл</b> по пути <b>Shortcuts/base.jpg</b> с выключенным
+             «Показать окно выбора» — или <b>Найти фото</b>, альбом ваш, лимит 1.</li>
+         <li><b>Изменить размер</b> этой фотографии: ширина
+             <span class="help-w"></span>, высота автоматически.</li>
+         <li><b>Обрезать</b>, произвольно, <span class="help-wh"></span>, положение
+             по центру.</li>
+         <li><b>Наложить изображение</b>. На вход идёт обрезанная фотография,
+             накладывается <b>изображение</b>, которое вернула ссылка. «Ещё» →
+             положение по центру, те же <span class="help-wh"></span>,
+             непрозрачность 100%.</li>
+         <li><b>Установить фото обоев</b> — <b>экран блокировки</b>, «Показать
+             предпросмотр» выключен.</li>
+       </ol>
+       <p>Шаги 4 и 5 пропускают чаще всего. Наложение растягивает меньшую картинку
+          до большей, поэтому снимок прямо с камеры растянет календарь и точки
+          сойдут с шага сетки.</p>
+     </div>
      <p>Ждать назначенного часа не обязательно: нажмите <b>▶</b> на автоматизации,
         и она отработает сразу.</p>
 `,
@@ -2184,6 +2307,21 @@ function paintSelection() {
   for (const row of document.querySelectorAll("[data-needs]")) {
     row.hidden = state[row.dataset.needs] !== "1";
   }
+  // Nothing behind the picture unless the picture has holes in it.
+  const sheer = Number(state.vl) < 100;
+  // Where the veil goes is a question only a veil can raise.
+  document.getElementById("veil-mode-row").hidden = !sheer;
+  document.querySelector(".screen").classList.toggle("see-through", sheer);
+  // Two recipes, not one recipe and a footnote: a veil changes where the
+  // photograph comes from, how it is cut and what the wallpaper is set to.
+  document.getElementById("help-plain").hidden = sheer;
+  document.getElementById("help-sheer").hidden = !sheer;
+  // The Shortcut wants the numbers, and they are right here in the link.
+  const shot = screenSize();
+  for (const slot of document.querySelectorAll(".help-w")) slot.textContent = `${shot.w} px`;
+  for (const slot of document.querySelectorAll(".help-wh")) {
+    slot.textContent = `${shot.w} × ${shot.h}`;
+  }
   const named = Boolean(titleField.value.trim());
   for (const row of document.querySelectorAll("[data-needs-name]")) {
     // Measured while it is still folded: overflow:hidden leaves scrollHeight
@@ -2194,6 +2332,8 @@ function paintSelection() {
   }
   nudge.value = state.sh;
   nudgeValue.textContent = `${state.sh > 0 ? "+" : ""}${state.sh}%`;
+  veil.value = state.vl;
+  veilValue.textContent = `${state.vl}%`;
   document.querySelectorAll("[data-key]").forEach((host) => {
     const key = host.dataset.key;
     if (host.classList.contains("swatches")) paintWheel(host, state[key]);
@@ -2459,6 +2599,7 @@ function resetEverything() {
   screenW.value = SCREEN.w;
   screenH.value = SCREEN.h;
   nudge.value = state.sh;
+  veil.value = state.vl;
   mode = "quarter";
   // The builder mirrors itself into its own address, so the old settings have to
   // leave it too, or the next reload would restore what was just thrown away.
@@ -2499,6 +2640,11 @@ function showQuote() {
 nudge.addEventListener("input", () => { state.sh = nudge.value; render(); });
 document.getElementById("sh-reset").addEventListener("click", () => {
   state.sh = OPTIONS.sh.def;
+  render();
+});
+veil.addEventListener("input", () => { state.vl = veil.value; render(); });
+document.getElementById("vl-reset").addEventListener("click", () => {
+  state.vl = OPTIONS.vl.def;
   render();
 });
 
@@ -2652,11 +2798,20 @@ function colourWheel(onPick) {
 }
 
 // Named tones stay named in the link; anything else is the hex it is.
+// Read back off the picture, so a wheel with nothing set on it still opens on
+// the colour you are looking at rather than on black. Set by mockInk(), which
+// samples the preview for the mock-up clock and has the pixel in hand anyway.
+let shownBackground = "#fdf6e3";
+
 function paintWheel(host, chosen) {
   const wheel = host.querySelector(".pick");
   if (!wheel) return;
-  const named = chosen === "auto" || HUES.some(([hue]) => hue === chosen);
-  const hex = chosen === "auto" ? HUES[0][1] : hueHex(chosen);
+  const named = !chosen || chosen === "auto" || HUES.some(([hue]) => hue === chosen);
+  const hex = !chosen
+    ? shownBackground
+    : chosen === "auto"
+      ? HUES[0][1]
+      : hueHex(chosen);
   wheel.toggleAttribute("data-chosen", !named);
   wheel.style.setProperty("--picked", hex);
   wheel.querySelector("input").value = hex;

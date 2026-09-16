@@ -47,11 +47,13 @@ from .render import (
     ProductionError,
     ShapeError,
     Style,
+    VeilModeError,
     parse_bar,
     parse_footer,
     parse_header,
     parse_production,
     parse_shape,
+    parse_veil_mode,
     render_span,
     to_png,
 )
@@ -209,6 +211,22 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
     background: Annotated[
         str | None, Query(alias="bg", description="background color, overrides the theme")
     ] = None,
+    veil: Annotated[
+        int,
+        Query(
+            alias="vl",
+            ge=0,
+            le=100,
+            description="how solid the background is; under 100 the PNG comes back "
+            "translucent, to be laid over a photo on the phone",
+        ),
+    ] = 100,
+    veil_mode: Annotated[
+        str,
+        Query(
+            alias="vm", description="where the veil is laid: over all of it, or under each block"
+        ),
+    ] = "full",
     dot: Annotated[
         str | None, Query(alias="fg", description="dot color, overrides the theme")
     ] = None,
@@ -324,6 +342,8 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
             first_weekday=first_weekday,
             weekends=weekends,
             production=parse_production(production),
+            veil=veil,
+            veil_mode=parse_veil_mode(veil_mode),
             marks=marks,
             month_mark=parse_color(month_mark),
             markers=rules,
@@ -353,6 +373,7 @@ def wallpaper(  # noqa: PLR0913 - every parameter is a documented knob of the UR
         LanguageError,
         ProductionError,
         SkyError,
+        VeilModeError,
     ) as exc:
         raise HTTPException(400, str(exc)) from exc
     except ValueError as exc:

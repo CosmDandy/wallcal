@@ -98,6 +98,8 @@ that cannot be read is an error at startup rather than a silent fall back.
 | `th` | background preset                  | `light` | see the theme list below                  |
 | `fg` | dot color, overrides the theme     | —       | Solarized name or hex (`dc322f`, `f00`)   |
 | `bg` | background, overrides the theme    | —       | same                                      |
+| `vl` | how solid the background is        | `100`   | `0`–`100`; under 100 the PNG is sheer     |
+| `vm` | where a thinned background goes    | `full`  | `full`, `cards` under each block          |
 | `a`  | today's color                      | `orange`| same                                      |
 | `ax` | weekday and month labels           | `1`     | `1`, `0`                                  |
 | `lb` | where the labels go                | `split` | `split`, `left`, `right`                  |

@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import NamedTuple
 
 RGB = tuple[int, int, int]
+# A colour on its way to Pillow: three channels, or four when the drawing has
+# to carry its own alpha because there is no background to flatten it against.
+Paint = tuple[int, ...]
 
 # Ethan Schoonover's Solarized. Named colors are the vocabulary of the URL API,
 # so they must stay stable even if defaults change.
@@ -131,6 +134,12 @@ LIGHT_RAMP = Ramp(
     tint=0.30,
 )
 
+# How far the two background-derived tones are lifted off the background towards
+# the faint end. Named because a transparent wallpaper has no background to lift
+# them off: render.py needs the pair, not the flattened result.
+FUTURE_MIX = 0.42  # days not yet lived
+WEEKEND_MIX = 0.16  # the band behind days nobody works
+
 DARK_THRESHOLD = 0.2  # relative luminance below which a background counts as dark
 # The device finishes are mid-tone — desert titanium, ultramarine — and against
 # those a fixed Solarized step for small type lands at a contrast of under two.
@@ -192,8 +201,8 @@ def ramp_for(background: RGB, ink: str = "bright") -> Ramp:
     # sit at the same lightness but a visibly different hue, and read as a stain.
     return base._replace(
         faint=faint,
-        future=lerp(background, faint, 0.42),
-        weekend=lerp(background, faint, 0.16),
+        future=lerp(background, faint, FUTURE_MIX),
+        weekend=lerp(background, faint, WEEKEND_MIX),
         axis=_readable(base.axis, background, base.strong),
         footer=_readable(base.footer, background, base.strong),
     )

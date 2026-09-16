@@ -14,6 +14,7 @@ from PIL import Image
 from wallcal import __version__
 from wallcal.app import app, wallpaper
 from wallcal.devices import DEFAULT_DEVICE, DEVICES, MAX_SIDE, MIN_SIDE
+from wallcal.palette import parse_theme
 
 SPAN = "f=2026-09-01&t=2026-11-30"
 
@@ -703,6 +704,118 @@ def test_a_colour_dialled_by_hand_is_drawn_not_refused(client: TestClient):
         answer = client.get(f"/w/span.png?{SPAN}&{spot}")
         assert answer.status_code == 200, spot
         assert answer.headers["content-type"] == "image/png"
+
+
+def test_a_wallpaper_with_no_veil_has_holes_in_it(client: TestClient):
+    """No background to flatten against: the phone composites it over a photo."""
+    opaque = client.get(f"/w/span.png?{SPAN}")
+    clear = client.get(f"/w/span.png?{SPAN}&vl=0")
+
+    with Image.open(io.BytesIO(opaque.content)) as flat:
+        assert flat.mode == "RGB"
+    with Image.open(io.BytesIO(clear.content)) as holes:
+        assert holes.mode == "RGBA"
+        alpha = holes.getchannel("A")
+        assert alpha.getpixel((5, 5)) == 0, "the corner is nothing at all"
+        counts = alpha.histogram()
+        assert counts[0] > 0.5 * sum(counts), "most of a wallpaper is background"
+        assert counts[255] > 0, "the dots and the words are solid"
+        assert sum(counts[1:255]) > 0, "and the tints are neither"
+
+
+def test_the_veil_thickens_the_ground_without_touching_the_dots(client: TestClient):
+    """Between the two ends the background is a tint, and only the background."""
+    steps = {}
+    for veil in (0, 35, 70):
+        answer = client.get(f"/w/span.png?{SPAN}&vl={veil}")
+        with Image.open(io.BytesIO(answer.content)) as image:
+            assert image.mode == "RGBA", veil
+            alpha = image.getchannel("A")
+            steps[veil] = alpha.getpixel((5, 5))
+            assert alpha.histogram()[255] > 0, "the dots stay solid at any veil"
+
+    assert steps[0] < steps[35] < steps[70], steps
+    assert steps[70] == pytest.approx(178, abs=1), "70% of 255"
+
+
+def test_a_veil_in_blocks_leaves_the_rest_of_the_photograph_alone(client: TestClient):
+    """Panels under the blocks, the way a lock screen widget sits on a picture."""
+    sheet = client.get(f"/w/span.png?{SPAN}&vl=45")
+    blocks = client.get(f"/w/span.png?{SPAN}&vl=45&vm=cards&q=1")
+
+    with (
+        Image.open(io.BytesIO(sheet.content)) as one,
+        Image.open(io.BytesIO(blocks.content)) as many,
+    ):
+        assert many.mode == "RGBA"
+        flat, panels = one.getchannel("A"), many.getchannel("A")
+        assert flat.getpixel((5, 5)) > 0, "one sheet reaches the corner"
+        assert panels.getpixel((5, 5)) == 0, "panels do not"
+        # Down the middle: nothing at the top, then panels with gaps between them.
+        column = [panels.getpixel((many.width // 2, y)) for y in range(0, many.height, 4)]
+        edges = sum(1 for a, b in zip(column, column[1:], strict=False) if (a > 0) != (b > 0))
+        assert edges >= 4, f"{edges} edges: the blocks should come and go"
+        assert sum(1 for value in column if value == 0) > len(column) // 4
+
+
+def test_blocks_need_a_veil_to_be_made_of(client: TestClient):
+    """At a full veil there is nothing to shape: the ground is already the screen."""
+    plain = client.get(f"/w/span.png?{SPAN}")
+    asked = client.get(f"/w/span.png?{SPAN}&vm=cards")
+
+    assert asked.status_code == 200
+    assert asked.content == plain.content
+
+
+def test_an_unknown_veil_mode_is_refused(client: TestClient):
+    assert client.get(f"/w/span.png?{SPAN}&vl=50&vm=frosted").status_code == 400
+
+
+def test_the_veil_is_full_unless_asked(client: TestClient):
+    for spelling in ("", "&vl=100"):
+        answer = client.get(f"/w/span.png?{SPAN}{spelling}")
+        with Image.open(io.BytesIO(answer.content)) as image:
+            assert image.mode == "RGB", spelling
+
+
+def test_a_veil_just_short_of_full_still_draws_what_a_full_one_does(client: TestClient):
+    """The scale is continuous: 99 is 100 with the ground one step thinner.
+
+    The tint is composited over the veil rather than mixed into it, so the two
+    formulas have to meet at the end of the scale instead of stepping.
+    """
+    flat = client.get(f"/w/span.png?{SPAN}&we=1&vl=100")
+    sheer = client.get(f"/w/span.png?{SPAN}&we=1&vl=99")
+
+    with (
+        Image.open(io.BytesIO(flat.content)) as solid,
+        Image.open(io.BytesIO(sheer.content)) as thin,
+    ):
+        flattened = Image.alpha_composite(
+            Image.new("RGBA", thin.size, (*parse_theme("light"), 255)), thin.convert("RGBA")
+        ).convert("RGB")
+        band = (solid.width // 2, solid.height // 2)
+        assert (
+            max(
+                abs(a - b)
+                for a, b in zip(solid.getpixel(band), flattened.getpixel(band), strict=True)
+            )
+            <= 3
+        )
+
+
+def test_the_builder_offers_the_veil_and_says_what_it_costs(client: TestClient):
+    """A phone cannot see through a wallpaper; the page has to say so."""
+    page = client.get("/").text
+
+    assert 'id="vl"' in page
+    assert "Overlay Image" in page, "the Shortcut step that makes it work"
+    # Both languages carry the whole recipe, and in both it replaces the plain
+    # one rather than being appended to it: a reader who leaves the wallpaper
+    # opaque should never be told to overlay it on anything.
+    assert page.count('id="help-sheer"') == 2, "one for each language"
+    assert page.count('id="help-plain"') == 2
+    assert page.count("Наложить изображение") == 1
 
 
 def test_the_builder_offers_the_name(client: TestClient):

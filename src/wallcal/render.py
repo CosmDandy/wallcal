@@ -21,7 +21,7 @@ from . import quotes, workdays
 from .fonts import FONT_LIGHT, FONT_REGULAR, load_font
 from .grid import DAYS_PER_WEEK, CellState, Grid, month_end
 from .markers import Marker
-from .palette import RGB, Ramp, lerp, mix, ramp_for
+from .palette import FUTURE_MIX, RGB, WEEKEND_MIX, Paint, Ramp, lerp, mix, ramp_for
 from .sky import SkyMode, moon_phase, sun_day
 from .strings import days_left, month, polar, week_of, weekday
 
@@ -49,6 +49,12 @@ FADE_CURVE = 0.7
 FADE_REACH = 15  # days elapsed at which the fade uses the whole ramp
 QUOTE_MAX_LINES = 3
 QUOTE_ALPHA = 0.62  # against the footer tone: present, still quieter than the dots
+FULL_VEIL = 100  # a background at its full strength, which is the default
+# A panel's own geometry, in fractions of the screen's width. The radius is
+# the one iOS uses on a lock screen widget; the padding is what keeps a dot
+# at the edge of the grid from sitting on the curve.
+CARD_RADIUS = 0.055
+CARD_PAD = 0.030
 
 # The moon is a hair over the type beside it and, on a two-weeks-to-a-row span,
 # within a couple of pixels of a grid dot — which is why it reads as one more
@@ -81,6 +87,25 @@ def parse_header(spec: str) -> HeaderMode:
     except ValueError as exc:
         known = ", ".join(mode.value for mode in HeaderMode)
         raise HeaderError(f"unknown header {spec!r}; use one of: {known}") from exc
+
+
+class VeilMode(Enum):
+    """Where the thinned background is laid, once it is thin enough to see past."""
+
+    FULL = "full"  # the whole screen, evenly
+    CARDS = "cards"  # a panel under each block, the way an iOS widget sits
+
+
+class VeilModeError(ValueError):
+    """Raised for an unknown veil mode."""
+
+
+def parse_veil_mode(spec: str) -> VeilMode:
+    try:
+        return VeilMode(spec.strip().lower())
+    except ValueError as exc:
+        known = ", ".join(mode.value for mode in VeilMode)
+        raise VeilModeError(f"unknown veil {spec!r}; use one of: {known}") from exc
 
 
 class FooterMode(Enum):
@@ -232,6 +257,8 @@ class Style:
     sky: SkyMode = SkyMode.NONE  # a moon, a sun line, or both, in the same band
     location: tuple[float, float] | None = None  # rounded latitude and longitude
     day_length: bool = True  # the day's length and how much it changed overnight
+    veil: int = 100  # how solid the background is, 0 for a photograph underneath
+    veil_mode: VeilMode = VeilMode.FULL  # all of it, or a panel under each block
     clock: str = "std"  # how much room the lock screen clock needs above
     ink: str = "bright"  # strong end of the ramp: bright or cream
     language: str = "en"
@@ -248,6 +275,48 @@ class Style:
     def shows_quote(self) -> bool:
         """Your own line stands on its own: writing one is asking for a quote."""
         return bool(self.quote_text) or self.quote
+
+    @property
+    def veil_alpha(self) -> int:
+        """The ground's own opacity, 0–255."""
+        return round(255 * max(0, min(FULL_VEIL, self.veil)) / FULL_VEIL)
+
+    @property
+    def sheer(self) -> bool:
+        """Whether the picture has anything to let through at all."""
+        return self.veil < FULL_VEIL
+
+    @property
+    def on_cards(self) -> bool:
+        """Whether the ground is panels rather than the whole screen."""
+        return self.sheer and self.veil_mode is VeilMode.CARDS
+
+    def tint(self, colour: RGB, amount: float) -> Paint:
+        """`colour` laid on the background at `amount`.
+
+        Flattened while the background is solid. When it is not, the two are
+        composited instead and the result keeps its own alpha: over someone's
+        photograph a weekend band has to stay a tint, or it lands as a patch of
+        opaque paint in a colour chosen for a ground that is no longer there.
+
+        Source-over of the tint on the veil, which is continuous in both: at
+        full veil it is the flattened mix exactly, at none of it the bare colour
+        carrying `amount` as its alpha.
+        """
+        if not self.sheer:
+            return lerp(self.background, colour, amount)
+        amount = max(0.0, min(1.0, amount))
+        under = self.veil / FULL_VEIL * (1 - amount)
+        alpha = amount + under
+        if alpha <= 0:
+            return (*colour, 0)
+        return (
+            *(
+                round((c * amount + b * under) / alpha)
+                for c, b in zip(colour, self.background, strict=True)
+            ),
+            round(255 * alpha),
+        )
 
     @property
     def shows_band(self) -> bool:
@@ -313,17 +382,55 @@ def render_span(
         title=bool(style.title),
         title_size=style.title_size,
     )
-    image = Image.new("RGB", (width, height), style.background)
+    # Panels are the one case that has to be drawn in two layers: where they go
+    # is decided by what the drawing turns out to cover, which is not known
+    # until it is drawn. So the drawing is made on nothing, with every tint
+    # carrying its own alpha, and the panels are composited under it afterwards.
+    if style.on_cards:
+        bare = replace(style, veil=0)
+        content = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        _draw_everything(content, lay, grid, bare, zone)
+        ground = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        _draw_cards(ground, content, lay, grid, style)
+        return Image.alpha_composite(ground, content)
 
+    # A thinned ground when the picture is meant to sit on a photograph: the
+    # dots and the type stay solid, the tints keep their own alpha, and the
+    # phone composites the rest.
+    image = (
+        Image.new("RGBA", (width, height), (*style.background, style.veil_alpha))
+        if style.sheer
+        else Image.new("RGB", (width, height), style.background)
+    )
+    _draw_everything(image, lay, grid, style, zone)
+    return image
+
+
+def _draw_everything(
+    image: Image.Image,
+    lay: layout_mod.Layout,
+    grid: Grid,
+    style: Style,
+    zone: tzinfo,
+) -> None:
+    """Every mark of the wallpaper, on whatever ground it was handed."""
     _draw_backdrops(image, lay, grid, style)
     _draw_markers(image, lay, grid, style)
 
     mask = _dot_mask(lay.dot, style.shape, lay.corner)
     ramp = style.ramp
+    mode = "RGBA" if style.sheer else "RGB"
+    opaque = (255,) if style.sheer else ()
+
+    def sprite(colour: Paint) -> Image.Image:
+        return Image.new(mode, (lay.dot, lay.dot), colour)
+
     tiles = {
-        CellState.PAST: Image.new("RGB", (lay.dot, lay.dot), ramp.strong),
-        CellState.FUTURE: Image.new("RGB", (lay.dot, lay.dot), ramp.future),
-        CellState.TODAY: Image.new("RGB", (lay.dot, lay.dot), style.accent),
+        CellState.PAST: sprite((*ramp.strong, *opaque)),
+        # A day not yet lived is the background lifted a little; with no
+        # background it is that lift, and the photograph shows through it.
+        CellState.FUTURE: sprite(style.tint(ramp.faint, FUTURE_MIX)),
+        CellState.TODAY: sprite((*style.accent, *opaque)),
     }
     faded: dict[int, Image.Image] = {}
 
@@ -335,9 +442,7 @@ def render_span(
             step = _fade_step(cell.day, grid)
             if step not in faded:
                 along = FADE_FLOOR + (1 - FADE_FLOOR) * (step / FADE_STEPS) ** FADE_CURVE
-                faded[step] = Image.new(
-                    "RGB", (lay.dot, lay.dot), lerp(ramp.faint, ramp.strong, along)
-                )
+                faded[step] = sprite((*lerp(ramp.faint, ramp.strong, along), *opaque))
             tile = faded[step]
         image.paste(tile, lay.dot_origin(cell.row, cell.col), mask)
 
@@ -357,7 +462,55 @@ def render_span(
     if style.bar is not BarMode.NONE:
         _draw_bar(image, lay, grid, style)
 
-    return image
+
+def _draw_cards(
+    ground: Image.Image,
+    content: Image.Image,
+    lay: layout_mod.Layout,
+    grid: Grid,
+    style: Style,
+) -> None:
+    """A rounded panel under each block of the drawing, iOS-widget fashion.
+
+    The blocks are separated by where the wallpaper puts them — the grid, the
+    quote, the footer line, the bar — and each panel is fitted to what actually
+    landed in that band rather than to what the layout reserved for it: a
+    one-line quote should not get a three-line panel.
+    """
+    marks = [lay.grid_y + lay.grid_height]
+    if style.shows_quote:
+        marks.append(lay.quote_center_y)
+    if style.footer is not FooterMode.NONE or style.shows_sky:
+        marks.append(lay.footer_center_y)
+    if style.bar is not BarMode.NONE:
+        marks.append(lay.bar_center_y)
+    marks.sort()
+
+    # The seams go halfway between one block and the next, so a band holds the
+    # whole of its own block and none of its neighbour's.
+    seams = [0, *((a + b) // 2 for a, b in zip(marks, marks[1:], strict=False)), lay.height]
+    pad_x = max(round(lay.width * CARD_PAD), lay.pitch_x // 2)
+    pad_y = max(round(lay.width * CARD_PAD), lay.pitch_y // 2)
+    alpha = content.getchannel("A")
+    draw = ImageDraw.Draw(ground)
+
+    for top, bottom in zip(seams, seams[1:], strict=False):
+        box = alpha.crop((0, top, lay.width, bottom)).getbbox()
+        if box is None:
+            continue
+        left, up, right, down = box
+        panel = (
+            max(0, left - pad_x),
+            max(0, top + up - pad_y),
+            min(lay.width, right + pad_x),
+            min(lay.height, top + down + pad_y),
+        )
+        radius = min(
+            round(lay.width * CARD_RADIUS),
+            (panel[2] - panel[0]) // 2,
+            (panel[3] - panel[1]) // 2,
+        )
+        draw.rounded_rectangle(panel, radius=radius, fill=(*style.background, style.veil_alpha))
 
 
 def _fade_step(day: date, grid: Grid) -> int:
@@ -386,10 +539,10 @@ def _draw_backdrops(image: Image.Image, lay: layout_mod.Layout, grid: Grid, styl
     ramp = style.ramp
     radius = round(lay.pitch_x * BAND_RADIUS)
     if style.weekends:
-        _draw_non_working(draw, lay, grid, style, radius, ramp.weekend)
+        _draw_non_working(draw, lay, grid, style, radius, style.tint(ramp.faint, WEEKEND_MIX))
 
     if style.marks:
-        month_tint = lerp(style.background, style.month_mark, ramp.tint)
+        month_tint = style.tint(style.month_mark, ramp.tint)
         for cell in grid.cells:
             if cell.state is CellState.OUTSIDE or not cell.is_month_end:
                 continue
@@ -433,9 +586,9 @@ def _draw_markers(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style:
     def off(day: date) -> bool:
         return _is_non_working(day, style)
 
-    claimed: dict[date, RGB] = {}
+    claimed: dict[date, Paint] = {}
     for marker in style.markers:
-        tint = lerp(style.background, marker.color, amount)
+        tint = style.tint(marker.color, amount)
         for day in marker.days_in(grid.start, grid.end, off):
             claimed[day] = tint  # later rules paint over earlier ones
 
@@ -490,7 +643,7 @@ def _draw_non_working(  # noqa: PLR0913 - a drawing primitive, given its geometr
     grid: Grid,
     style: Style,
     radius: int,
-    tint: RGB,
+    tint: Paint,
 ) -> None:
     """The band under days that are not worked, as few shapes as the days allow.
 
@@ -696,7 +849,7 @@ def _draw_quote(
     """The day's line, set to the width of the grid so it squares up with it."""
     line, author = quote
     draw = ImageDraw.Draw(image)
-    color = mix(style.ramp.footer, style.background, QUOTE_ALPHA)
+    color = style.tint(style.ramp.footer, QUOTE_ALPHA)
 
     size = lay.quote_font
     body = load_font(FONT_LIGHT, size)
@@ -718,7 +871,9 @@ def _draw_quote(
             (lay.width / 2, top + len(rows) * step + step * 0.15),
             author,
             font=credit,
-            fill=mix(color, style.background, 0.75),
+            # The same tone held further back, stated against the footer rather
+            # than against the colour above: mixing a mix has no alpha to carry.
+            fill=style.tint(style.ramp.footer, QUOTE_ALPHA * 0.75),
             anchor="mm",
         )
 
@@ -778,8 +933,14 @@ def _paste_moon(
 
     ramp = style.ramp
     top = center_y - size // 2
-    image.paste(Image.new("RGB", (size, size), ramp.future), (left, top), disc)
-    image.paste(Image.new("RGB", (size, size), ramp.strong), (left, top), lit)
+    mode = "RGBA" if style.sheer else "RGB"
+    unlit = style.tint(ramp.faint, FUTURE_MIX)
+    image.paste(Image.new(mode, (size, size), unlit), (left, top), disc)
+    image.paste(
+        Image.new(mode, (size, size), (*ramp.strong, *((255,) if style.sheer else ()))),
+        (left, top),
+        lit,
+    )
 
 
 @lru_cache(maxsize=32)
@@ -863,7 +1024,7 @@ def _draw_bar(image: Image.Image, lay: layout_mod.Layout, grid: Grid, style: Sty
     draw.rounded_rectangle(
         (left, top, left + width, top + height),
         radius=radius,
-        fill=style.ramp.future,
+        fill=style.tint(style.ramp.faint, FUTURE_MIX),
     )
     filled = round(width * _bar_progress(style.bar, grid))
     if filled >= height:
