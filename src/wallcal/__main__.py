@@ -32,6 +32,9 @@ def main() -> None:
         forwarded_allow_ips=args.forwarded_allow_ips or None,
         # We log our own line per request, with the timing and the size in it.
         access_log=False,
+        # `server: uvicorn` tells a scanner which advisories to try and tells a
+        # client nothing it needs.
+        server_header=False,
     )
 
 
