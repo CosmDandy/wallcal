@@ -13,8 +13,10 @@
 FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS builder
 
 # uv is pinned: an unpinned build tool is a reproducibility hole in a stage
-# whose whole purpose is a reproducible install.
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+# whose whole purpose is a reproducible install. By digest, like the base: the
+# tag alone can be moved onto a different binary, and this one runs as root
+# with the network in the stage that installs every dependency.
+COPY --from=ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
