@@ -13,3 +13,27 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # Дайджесты базового образа и uv в Dockerfile — такие же пины, и без этого
+  # блока они стоят на месте, а с ними и пакеты Debian внутри образа.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      images:
+        patterns: ["*"]
+
+  # uv.lock: security-апдейты приходят и без этого блока, а обычные версии —
+  # нет, и лок отстаёт, пока очередная CVE не потащит за собой мажорный скачок.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      python:
+        patterns: ["*"]
